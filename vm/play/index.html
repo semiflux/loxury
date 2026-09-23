@@ -13,6 +13,9 @@ h1 { font-size: 1.6em; border-bottom: 1px solid #d8cfc0; padding-bottom: 0.3em; 
 .err { color: #a00; }
 button, select { font-size: 0.95em; margin: 0.6em 0.6em 0.6em 0; padding: 0.25em 0.8em; background: #f3ecdd; border: 1px solid #c9bfae; color: #3b2f2f; }
 button:hover { background: #e9dfc9; }
+details { margin-top: 1em; }
+summary { cursor: pointer; }
+#grammar { font-size: 0.85em; background: #fffdf8; border: 1px solid #c9bfae; padding: 0.8em; overflow-x: auto; }
 </style>
 </head>
 <body>
@@ -21,6 +24,49 @@ button:hover { background: #e9dfc9; }
 <button id="run">Run</button>
 <div id="editor"><div id="gutter">1</div><textarea id="src" spellcheck="false"></textarea></div>
 <pre id="out"></pre>
+<details>
+<summary>grammar</summary>
+<pre id="grammar">program        → declaration* EOF ;
+
+declaration    → classDecl | funDecl | varDecl | statement ;
+classDecl      → "class" IDENTIFIER ( "&lt;" IDENTIFIER )? "{" function* "}" ;
+funDecl        → "fun" function ;
+varDecl        → "var" IDENTIFIER ( "=" expression )? ";" ;
+
+statement      → exprStmt | forStmt | ifStmt | printStmt
+               | returnStmt | whileStmt | block ;
+exprStmt       → expression ";" ;
+forStmt        → "for" "(" ( varDecl | exprStmt | ";" )
+                           expression? ";" expression? ")" statement ;
+ifStmt         → "if" "(" expression ")" statement ( "else" statement )? ;
+printStmt      → "print" expression ";" ;
+returnStmt     → "return" expression? ";" ;
+whileStmt      → "while" "(" expression ")" statement ;
+block          → "{" declaration* "}" ;
+
+expression     → assignment ;
+assignment     → ( call "." )? IDENTIFIER "=" assignment | logic_or ;
+logic_or       → logic_and ( "or" logic_and )* ;
+logic_and      → equality ( "and" equality )* ;
+equality       → comparison ( ( "!=" | "==" ) comparison )* ;
+comparison     → term ( ( "&gt;" | "&gt;=" | "&lt;" | "&lt;=" ) term )* ;
+term           → factor ( ( "-" | "+" ) factor )* ;
+factor         → unary ( ( "/" | "*" ) unary )* ;
+unary          → ( "!" | "-" ) unary | call ;
+call           → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
+primary        → "true" | "false" | "nil" | "this" | NUMBER | STRING
+               | IDENTIFIER | "(" expression ")" | "super" "." IDENTIFIER ;
+
+function       → IDENTIFIER "(" parameters? ")" block ;
+parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
+arguments      → expression ( "," expression )* ;
+
+NUMBER         → DIGIT+ ( "." DIGIT+ )? ;
+STRING         → "\"" &lt;any char except "\""&gt;* "\"" ;
+IDENTIFIER     → ALPHA ( ALPHA | DIGIT )* ;
+ALPHA          → "a" ... "z" | "A" ... "Z" | "_" ;
+DIGIT          → "0" ... "9" ;</pre>
+</details>
 <script type="module">
 import init, { run_lox } from './pkg/vm.js';
 
