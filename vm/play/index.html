@@ -4,35 +4,41 @@
 <meta charset="utf-8">
 <title>lox playground</title>
 <style>
-body { font-family: Georgia, serif; max-width: 860px; margin: 2.5em auto; padding: 0 1.2em; color: #3b2f2f; background: #faf6ef; }
+body { font-family: Georgia, serif; max-width: 1200px; margin: 2.5em auto; padding: 0 1.2em; color: #3b2f2f; background: #faf6ef; }
 h1 { font-size: 1.6em; border-bottom: 1px solid #d8cfc0; padding-bottom: 0.3em; }
-#editor { display: flex; border: 1px solid #c9bfae; background: #fffdf8; }
+#main { display: flex; gap: 1.2em; align-items: stretch; height: 660px; }
+#left { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#side { flex: 1; min-width: 0; display: flex; }
+@media (max-width: 800px) {
+  #main { flex-direction: column; height: auto; }
+  #src { height: 300px; }
+}
+#editor { display: flex; border: 1px solid #c9bfae; background: #fffdf8; flex: 1; min-height: 0; }
 #gutter { padding: 0.5em 0.6em; text-align: right; color: #b3a48c; font-family: monospace; font-size: 0.95em; line-height: 1.5; white-space: pre; overflow: hidden; user-select: none; border-right: 1px solid #e5dccb; }
-#src { flex: 1; height: 300px; font-family: monospace; font-size: 0.95em; line-height: 1.5; border: 0; padding: 0.5em; box-sizing: border-box; background: transparent; color: #3b2f2f; resize: vertical; }
-#out { white-space: pre-wrap; background: #fffdf8; border: 1px solid #c9bfae; padding: 0.8em; min-height: 80px; }
+#src { flex: 1; height: 100%; font-family: monospace; line-height: 1.5; white-space: pre; overflow: auto; border: 0; padding: 0.5em; margin: 0; box-sizing: border-box; background: transparent; color: #3b2f2f; resize: none; }
+#out { white-space: pre-wrap; background: #fffdf8; border: 1px solid #c9bfae; padding: 0.8em; min-height: 3em; max-height: 30%; overflow: auto; margin-bottom: 0; }
 .err { color: #a00; }
 button, select { font-size: 0.95em; margin: 0.6em 0.6em 0.6em 0; padding: 0.25em 0.8em; background: #f3ecdd; border: 1px solid #c9bfae; color: #3b2f2f; }
 button:hover { background: #e9dfc9; }
-details { margin-top: 1em; }
-summary { cursor: pointer; }
-#grammar { font-size: 0.85em; background: #fffdf8; border: 1px solid #c9bfae; padding: 0.8em; overflow-x: auto; }
+#grammar { flex: 1; line-height: 1.5; background: #fffdf8; border: 1px solid #c9bfae; padding: 0.8em; margin: 0; overflow: auto; white-space: pre; }
+#src, #gutter, #out { font-size: 14px; }
 </style>
 </head>
 <body>
 <h1>lox playground</h1>
 <select id="examples"></select>
 <button id="run">Run</button>
+<div id="main">
+<div id="left">
 <div id="editor"><div id="gutter">1</div><textarea id="src" spellcheck="false"></textarea></div>
 <pre id="out"></pre>
-<details>
-<summary>grammar</summary>
+</div>
+<div id="side">
 <pre id="grammar">program        → declaration* EOF ;
-
 declaration    → classDecl | funDecl | varDecl | statement ;
 classDecl      → "class" IDENTIFIER ( "&lt;" IDENTIFIER )? "{" function* "}" ;
 funDecl        → "fun" function ;
 varDecl        → "var" IDENTIFIER ( "=" expression )? ";" ;
-
 statement      → exprStmt | forStmt | ifStmt | printStmt
                | returnStmt | whileStmt | block ;
 exprStmt       → expression ";" ;
@@ -43,7 +49,6 @@ printStmt      → "print" expression ";" ;
 returnStmt     → "return" expression? ";" ;
 whileStmt      → "while" "(" expression ")" statement ;
 block          → "{" declaration* "}" ;
-
 expression     → assignment ;
 assignment     → ( call "." )? IDENTIFIER "=" assignment | logic_or ;
 logic_or       → logic_and ( "or" logic_and )* ;
@@ -56,17 +61,16 @@ unary          → ( "!" | "-" ) unary | call ;
 call           → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
 primary        → "true" | "false" | "nil" | "this" | NUMBER | STRING
                | IDENTIFIER | "(" expression ")" | "super" "." IDENTIFIER ;
-
 function       → IDENTIFIER "(" parameters? ")" block ;
 parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
 arguments      → expression ( "," expression )* ;
-
 NUMBER         → DIGIT+ ( "." DIGIT+ )? ;
 STRING         → "\"" &lt;any char except "\""&gt;* "\"" ;
 IDENTIFIER     → ALPHA ( ALPHA | DIGIT )* ;
 ALPHA          → "a" ... "z" | "A" ... "Z" | "_" ;
 DIGIT          → "0" ... "9" ;</pre>
-</details>
+</div>
+</div>
 <script type="module">
 import init, { run_lox } from './pkg/vm.js';
 
@@ -92,9 +96,9 @@ for (const name of Object.keys(EXAMPLES)) {
 }
 
 function syncGutter() {
-  const n = src.value.split('\n').length;
+  const lines = src.value.split('\n');
   let s = '';
-  for (let i = 1; i <= n; i++) s += i + '\n';
+  for (let i = 1; i <= lines.length; i++) s += (i > 1 ? '\n' : '') + i;
   gutter.textContent = s;
   gutter.scrollTop = src.scrollTop;
 }
