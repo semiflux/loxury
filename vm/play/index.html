@@ -2,36 +2,59 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>lox playground</title>
 <style>
-body { font-family: Georgia, serif; max-width: 1200px; margin: 2.5em auto; padding: 0 1.2em; color: #3b2f2f; background: #faf6ef; }
-h1 { font-size: 1.6em; border-bottom: 1px solid #d8cfc0; padding-bottom: 0.3em; }
-#main { display: flex; gap: 1.2em; align-items: stretch; height: 660px; }
-#left { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-#side { flex: 1; min-width: 0; display: flex; }
-@media (max-width: 800px) {
-  #main { flex-direction: column; height: auto; }
-  #src { height: 300px; }
+:root { --bg: #faf6ef; --fg: #3b2f2f; --panel: #fffdf8; --line: #c9bfae; --soft: #e5dccb; --dim: #b3a48c; --btn: #f3ecdd; --btn-h: #e9dfc9; --err: #a00; --fs: 14px; color-scheme: light dark; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1e1a16; --fg: #e8ded2; --panel: #26211b; --line: #4a4238; --soft: #3a342b; --dim: #6e6252; --btn: #2e2820; --btn-h: #3a3227; --err: #e88; }
 }
-#editor { display: flex; border: 1px solid #c9bfae; background: #fffdf8; flex: 1; min-height: 0; }
-#gutter { padding: 0.5em 0.6em; text-align: right; color: #b3a48c; font-family: monospace; font-size: 0.95em; line-height: 1.5; white-space: pre; overflow: hidden; user-select: none; border-right: 1px solid #e5dccb; }
-#src { flex: 1; height: 100%; font-family: monospace; line-height: 1.5; white-space: pre; overflow: auto; border: 0; padding: 0.5em; margin: 0; box-sizing: border-box; background: transparent; color: #3b2f2f; resize: none; }
-#out { white-space: pre-wrap; background: #fffdf8; border: 1px solid #c9bfae; padding: 0.8em; min-height: 3em; max-height: 30%; overflow: auto; margin-bottom: 0; }
-.err { color: #a00; }
-button, select { font-size: 0.95em; margin: 0.6em 0.6em 0.6em 0; padding: 0.25em 0.8em; background: #f3ecdd; border: 1px solid #c9bfae; color: #3b2f2f; }
-button:hover { background: #e9dfc9; }
-#grammar { flex: 1; line-height: 1.5; background: #fffdf8; border: 1px solid #c9bfae; padding: 0.8em; margin: 0; overflow: auto; white-space: pre; }
-#src, #gutter, #out { font-size: 14px; }
+@media (pointer: coarse) { :root { --fs: 16px; } }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { font-family: Georgia, serif; max-width: 1200px; margin: 0 auto; padding: 0 1.2em 2em; color: var(--fg); background: var(--bg); }
+h1 { font-size: 1.6em; border-bottom: 1px solid var(--line); padding-bottom: 0.3em; margin: 1em 0 0.4em; }
+#bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 0.3em 0; display: flex; flex-wrap: wrap; gap: 0.5em; align-items: center; }
+button, select { font: inherit; font-size: 0.95em; padding: 0.25em 0.8em; background: var(--btn); border: 1px solid var(--line); color: var(--fg); }
+button:hover:not(:disabled) { background: var(--btn-h); }
+button:disabled { opacity: 0.5; }
+button:focus-visible, select:focus-visible, #src:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
+@media (pointer: coarse) { button, select { min-height: 44px; font-size: 16px; } }
+#main { display: flex; gap: 1.2em; align-items: stretch; height: min(720px, 80vh); height: min(720px, 80dvh); }
+#left { flex: 50; min-width: 0; display: flex; flex-direction: column; }
+#side { flex: 50; min-width: 0; display: flex; }
+#editor { display: flex; border: 1px solid var(--line); background: var(--panel); flex: 3 1 0; min-height: 0; }
+#gutter, #src { font-family: monospace; font-size: var(--fs); line-height: 1.5; }
+#gutter { padding: 0.5em 0.6em; padding-bottom: calc(0.5em + 20px); text-align: right; color: var(--dim); white-space: pre; overflow: hidden; user-select: none; border-right: 1px solid var(--soft); }
+#src { flex: 1; min-width: 0; height: 100%; white-space: pre; overflow: auto; border: 0; padding: 0.5em; margin: 0; background: transparent; color: var(--fg); resize: none; }
+#out { white-space: pre-wrap; font-size: var(--fs); background: var(--panel); border: 1px solid var(--line); padding: 0.8em; min-height: 3em; max-height: 25%; overflow: auto; margin: 0.6em 0 0; flex: 0 1 auto; }
+#disasm { white-space: pre; font-family: ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace; background: var(--panel); border: 1px solid var(--line); padding: 0.8em; overflow: auto; flex: 2 1 0; min-height: 0; margin: 0.6em 0 0; font-size: 13px; }
+.err { color: var(--err); }
+#grammar { flex: 1; min-width: 0; overflow: auto; border: 1px solid var(--line); background: var(--panel); line-height: 1.5; font-family: ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; padding: 0.8em; margin: 0; white-space: pre; }
+@media (max-width: 800px), (max-height: 600px) {
+  #main { flex-direction: column; height: auto; }
+  #left, #side { flex: none; }
+  #editor { flex: none; height: min(300px, 50vh); height: min(300px, 50dvh); min-height: 180px; }
+  #disasm { flex: none; max-height: 300px; }
+  #out { max-height: none; }
+}
 </style>
 </head>
 <body>
 <h1>lox playground</h1>
-<select id="examples"></select>
-<button id="run">Run</button>
+<div id="bar">
+  <select id="examples" aria-label="Example programs"></select>
+  <button id="run" disabled>Run</button>
+  <button id="stop" hidden>Stop</button>
+  <button id="bytecode" disabled>bytecode</button>
+</div>
+<noscript><p>This page needs JavaScript and WebAssembly.</p></noscript>
 <div id="main">
 <div id="left">
-<div id="editor"><div id="gutter">1</div><textarea id="src" spellcheck="false"></textarea></div>
-<pre id="out"></pre>
+<div id="editor"><div id="gutter" aria-hidden="true">1</div><textarea id="src" aria-label="Lox source code" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" wrap="off"></textarea></div>
+<pre id="out" aria-live="polite" aria-label="Program output"></pre>
+<pre id="disasm" hidden></pre>
 </div>
 <div id="side">
 <pre id="grammar">program        → declaration* EOF ;
@@ -72,8 +95,6 @@ DIGIT          → "0" ... "9" ;</pre>
 </div>
 </div>
 <script type="module">
-import init, { run_lox } from './pkg/vm.js';
-
 const EXAMPLES = {
   hello: 'print "hello";',
   fib: 'fun fib(n) {\n  if (n < 2) return n;\n  return fib(n - 2) + fib(n - 1);\n}\nprint fib(20);',
@@ -85,10 +106,13 @@ const EXAMPLES = {
   closures: 'fun adder(x) {\n  fun add(y) { return x + y; }\n  return add;\n}\nvar add3 = adder(3);\nprint add3(4);\nprint add3(10);',
 };
 
-const src = document.getElementById('src');
-const out = document.getElementById('out');
-const gutter = document.getElementById('gutter');
-const examples = document.getElementById('examples');
+const TIMEOUT_MS = 10000;
+const $ = (id) => document.getElementById(id);
+const src = $('src'), out = $('out'), gutter = $('gutter'), examples = $('examples');
+const runBtn = $('run'), stopBtn = $('stop'), bcBtn = $('bytecode'), dis = $('disasm');
+const coarse = matchMedia('(pointer: coarse)');
+
+/* ---------- editor ---------- */
 for (const name of Object.keys(EXAMPLES)) {
   const o = document.createElement('option');
   o.value = o.textContent = name;
@@ -96,30 +120,186 @@ for (const name of Object.keys(EXAMPLES)) {
 }
 
 function syncGutter() {
-  const lines = src.value.split('\n');
-  let s = '';
-  for (let i = 1; i <= lines.length; i++) s += (i > 1 ? '\n' : '') + i;
+  const n = src.value.split('\n').length;
+  let s = '1';
+  for (let i = 2; i <= n; i++) s += '\n' + i;
   gutter.textContent = s;
   gutter.scrollTop = src.scrollTop;
 }
 src.addEventListener('input', syncGutter);
 src.addEventListener('scroll', () => { gutter.scrollTop = src.scrollTop; });
+src.addEventListener('pointerdown', () => { src.readOnly = false; });
 
 function load(name) {
   src.value = EXAMPLES[name];
   syncGutter();
 }
 examples.onchange = () => load(examples.value);
+
 load('hello');
 
-document.getElementById('run').onclick = () => {
-  const res = JSON.parse(run_lox(src.value));
+/* ---------- worker (VM runs off the main thread) ---------- */
+const workerCode = `
+import init, { run_lox } from '${new URL('./pkg/vm.js', location.href).href}';
+try { await init(); postMessage({ ready: true }); }
+catch (e) { postMessage({ fatal: 'could not load wasm: ' + e }); }
+onmessage = (ev) => {
+  try { postMessage({ res: run_lox(ev.data) }); }
+  catch (e) { postMessage({ fatal: 'VM crashed: ' + e }); }
+};
+`;
+const workerUrl = URL.createObjectURL(new Blob([workerCode], { type: 'text/javascript' }));
+
+let worker = null, ready = false, running = false, timer = 0;
+let lastDisasm = null;
+
+function showError(msg) {
+  out.className = 'err';
+  out.textContent = msg;
+}
+function updateButtons() {
+  runBtn.disabled = !ready || running;
+  stopBtn.hidden = !running;
+  bcBtn.disabled = lastDisasm == null;
+}
+
+function spawn() {
+  ready = false; running = false;
+  updateButtons();
+  try {
+    worker = new Worker(workerUrl, { type: 'module' });
+  } catch (e) {
+    showError('This browser does not support module workers: ' + e);
+    return;
+  }
+  worker.onmessage = onMessage;
+  worker.onerror = (e) => {
+    clearTimeout(timer);
+    showError('Worker error: ' + (e.message || 'failed to start (is ./pkg/vm.js reachable?)'));
+    running = false; updateButtons();
+  };
+}
+
+function onMessage(ev) {
+  const d = ev.data;
+  if (d.ready) { ready = true; updateButtons(); return; }
+  clearTimeout(timer);
+  if (d.fatal) {
+    showError(d.fatal);
+    worker.terminate();
+    lastDisasm = null; hideDisasm();
+    spawn();
+    return;
+  }
+  running = false;
+  let res;
+  try { res = JSON.parse(d.res); }
+  catch (e) { showError('Invalid VM response: ' + e); updateButtons(); return; }
   out.textContent = res.output.join('\n');
   out.className = res.ok ? '' : 'err';
   if (!res.ok && res.error) out.textContent += (out.textContent ? '\n' : '') + res.error;
+  lastDisasm = res.ok ? res.disasm : null;
+  if (!res.ok) hideDisasm();
+  else if (!dis.hidden) renderDisasm();
+  updateButtons();
+}
+
+function kill(msg) {
+  clearTimeout(timer);
+  worker.terminate();
+  showError(msg);
+  spawn();
+}
+
+function run() {
+  if (!ready || running) return;
+  running = true;
+  updateButtons();
+  worker.postMessage(src.value);
+  timer = setTimeout(() => kill('Stopped: execution took longer than ' + TIMEOUT_MS / 1000 + ' s.'), TIMEOUT_MS);
+}
+
+runBtn.onclick = run;
+stopBtn.onclick = () => kill('Stopped by user.');
+
+spawn();
+
+/* ---------- bytecode view ---------- */
+function hideDisasm() {
+  dis.hidden = true;
+  bcBtn.textContent = 'bytecode';
+  updateButtons();
+}
+
+bcBtn.onclick = () => {
+  if (!dis.hidden) { hideDisasm(); return; }
+  if (lastDisasm == null) return;
+  renderDisasm();
+  dis.hidden = false;
+  bcBtn.textContent = 'hide bytecode';
 };
 
-await init();
+function renderDisasm() {
+  dis.className = '';
+  dis.textContent = '';
+  // entries lead with "addr line:col"; bare lines continue the previous one
+  let current = null;
+  const rawLines = lastDisasm.split('\n');
+  if (rawLines.length && rawLines[rawLines.length - 1] === '') rawLines.pop();
+  for (const raw of rawLines) {
+    const m = raw.match(/^(\d+) (\d+):(\d+) (.*)$/);
+    if (!m) {
+      if (current && !raw.startsWith('---')) current.span.textContent += raw + '\n';
+      else {
+        const span = document.createElement('span');
+        span.textContent = raw + '\n';
+        dis.appendChild(span);
+        current = null;
+      }
+      continue;
+    }
+    const span = document.createElement('span');
+    span.textContent = raw + '\n';
+    const line = +m[2], col = +m[3];
+    span.style.cursor = 'pointer';
+    span.onmouseenter = () => highlight(line, col);
+    span.onmouseleave = clearHighlight;
+    dis.appendChild(span);
+    current = { span, line };
+  }
+}
+
+function highlight(line, col) {
+  const lines = src.value.split('\n');
+  let start = 0;
+  for (let i = 1; i < line; i++) start += lines[i - 1].length + 1;
+  start += col - 1;
+  // on touch devices a readonly textarea can be focused without raising the keyboard
+  if (coarse.matches) src.readOnly = true;
+  src.focus({ preventScroll: true });
+  src.setSelectionRange(start, start + tokenLen(lines[line - 1] || '', col - 1));
+}
+
+function clearHighlight() {
+  src.setSelectionRange(src.selectionStart, src.selectionStart);
+  if (coarse.matches) src.readOnly = false;
+}
+
+// token extent from a 0-based column: strings, numbers, identifiers,
+// two-char operators, or a single char fallback
+function tokenLen(line, col) {
+  const rest = line.slice(col);
+  if (rest.startsWith('"')) {
+    const end = rest.indexOf('"', 1);
+    return end < 0 ? rest.length : end + 1;
+  }
+  const num = rest.match(/^\d+(\.\d+)?/);
+  if (num) return num[0].length;
+  const word = rest.match(/^[A-Za-z_][A-Za-z0-9_]*/);
+  if (word) return word[0].length;
+  if (/^(==|!=|<=|>=)/.test(rest)) return 2;
+  return rest.length > 0 ? 1 : 0;
+}
 </script>
 </body>
 </html>

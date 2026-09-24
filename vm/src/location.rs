@@ -14,6 +14,14 @@ impl Coords {
             value,
         }
     }
+
+    pub fn row(&self) -> u16 {
+        self.0
+    }
+
+    pub fn col(&self) -> u16 {
+        self.1
+    }
 }
 
 impl Display for Coords {

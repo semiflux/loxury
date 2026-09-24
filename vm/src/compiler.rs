@@ -1,7 +1,7 @@
 // TODO: automate `emit_...` to avoid passing `coords`
 // TODO: maybe bind function name to FunctionKind::Function
 
-use crate::chunk::{Chunk, Function, FunctionDisplay, FunctionKind, OpCode, Upvalue, Value};
+use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Upvalue, Value};
 use crate::gc::{Allocate, Heap};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
@@ -297,7 +297,7 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
             objects,
             frame: CompilationFrame::new(function_kind),
             errors: Errors::new(err),
-            class_compiler: ClassCompiler::new()
+            class_compiler: ClassCompiler::new(),
         }
     }
 
@@ -310,13 +310,6 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
             self.current_chunk().write_nowhere(OpCode::Nil as u8);
             self.current_chunk().write_nowhere(OpCode::Return as u8);
 
-            if std::env::var("LOX_DUMP").is_ok() {
-                println!(
-                    "---{}---",
-                    FunctionDisplay(&self.frame.function, self.objects)
-                );
-                let _ = self.frame.function.chunk.disassemble(self.objects);
-            }
             let ret = mem::replace(
                 &mut self.frame.function,
                 Function::new(FunctionKind::Script),
@@ -792,11 +785,6 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
         let name = self.objects.alloc(name.into());
         function.name = Some(name);
 
-        if std::env::var("LOX_DUMP").is_ok() {
-            println!("---{}---", FunctionDisplay(&function, self.objects));
-            let _ = function.chunk.disassemble(self.objects);
-        }
-
         let function_obj = self.objects.alloc(function);
 
         self.emit_op(OpCode::Closure, coords);
@@ -895,8 +883,14 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
             .filter(|t| t.kind() == TokenKind::Identifier)
             .map(|t| t.span())
         else {
-            // shouldn't be unreachable, TODO: double check
-            unreachable!()
+            if let Some(token) = self.peek_token() {
+                self.errors
+                    .sync(&token.co_locate(CompileError::ExpectedVariableName).into());
+            } else {
+                self.errors
+                    .sync(&AtCoordsOrEof::Eof(CompileError::ExpectedVariableName));
+            }
+            return;
         };
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
             self.frame.locals.mark_initialized();
