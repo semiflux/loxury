@@ -1,7 +1,8 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
 use crate::chunk::{
-    BoundMethod, Class, Closure, FunctionKind, Instance, ObjUpvalue, OpCode, Value, ValueDisplay,
+    BoundMethod, Class, Closure, Function, FunctionDisplay, FunctionKind, Instance, ObjUpvalue,
+    OpCode, Value, ValueDisplay,
 };
 use crate::compiler::Compiler;
 use crate::gc::{Allocate, GcHandle, Heap, Mark, Trace};
@@ -11,6 +12,7 @@ use crate::{ArrayVec, RunError};
 // use std::collections::HashMap;
 use fxhash::FxHashMap as HashMap;
 
+use std::fmt::Write as FmtWrite;
 use std::io::{Stderr, Stdout, Write};
 use std::time::UNIX_EPOCH;
 
@@ -44,8 +46,17 @@ pub struct Vm<W = Stdout, E = Stderr> {
     pub err: E,
 }
 
-impl<W: Write + Default, E: Write + Default> Default for Vm<W, E> {
-    fn default() -> Self {
+fn dump_function<D: FmtWrite>(f: &Function, heap: &Heap, out: &mut D) {
+    let _ = writeln!(out, "---{}---", FunctionDisplay(f, heap));
+    let _ = f.chunk.disassemble(heap, out);
+    for constant in &f.chunk.constants {
+        if let Value::Function(h) = constant {
+            dump_function(&heap[*h], heap, out);
+        }
+    }
+}
+
+impl<W: Write + Default, E: Write + Default> Default for Vm<W, E> {    fn default() -> Self {
         Self::with_outputs(W::default(), E::default())
     }
 }
@@ -178,7 +189,7 @@ impl<W: Write, E: Write> Vm<W, E> {
 
     // unit Err: errors are already reported with locations
     #[allow(clippy::result_unit_err)]
-    pub fn run(&mut self, source: &str) -> Result<(), ()> {
+    pub fn run<D: FmtWrite>(&mut self, source: &str, disasm: Option<&mut D>) -> Result<(), ()> {
         // clear previous junk
         // FIXME: check if needs optimization
         self.stack = ArrayVec::new();
@@ -197,6 +208,9 @@ impl<W: Write, E: Write> Vm<W, E> {
                 Err(()) => return Err(()),
             }
         };
+        if let Some(out) = disasm {
+            dump_function(&function, &self.objects, out);
+        }
         let function = self.alloc(function);
         let closure = self.alloc(Closure::new(function));
 

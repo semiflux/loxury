@@ -56,49 +56,54 @@ impl Chunk {
     }
 
     pub fn coords(&self, index: usize) -> Coords {
-        self.coords[index]
+        // write_nowhere epilogue bytes carry no coords; blame the last one
+        if self.coords.is_empty() {
+            Coords::new(0, 0)
+        } else {
+            self.coords[index.min(self.coords.len() - 1)]
+        }
     }
 
-    pub fn disassemble(&self, objects: &Heap) -> fmt::Result {
+    pub fn disassemble<W: fmt::Write>(&self, objects: &Heap, out: &mut W) -> fmt::Result {
         let mut bytes = self.code.iter().enumerate();
         macro_rules! simple {
             ($op_name:expr) => {
-                println!("{}", $op_name)
+                writeln!(out, "{}", $op_name)?;
             };
         }
         macro_rules! byte {
             ($op_name:expr) => {{
                 let arg = *bytes.next().unwrap().1;
-                println!("{} {}", $op_name, arg)
+                writeln!(out, "{} {}", $op_name, arg)?;
             }};
         }
         macro_rules! constant {
             ($op_name:expr) => {{
                 let index = *bytes.next().unwrap().1 as usize;
                 let arg = &self.constants[index];
-                print!("{} {} ", $op_name, index);
-                print!("{:?}", ValueDisplay(arg, &objects));
-                println!("");
+                write!(out, "{} {} ", $op_name, index)?;
+                writeln!(out, "{:?}", ValueDisplay(arg, &objects))?;
             }};
         }
         macro_rules! jump {
             ($op_name:expr, $addr:expr, $sign:tt) => {{
                 let offset = u16::from_be_bytes([*bytes.next().unwrap().1, *bytes.next().unwrap().1]);
                 let destination = $addr + 3 $sign offset as usize;
-                println!("{} {} -> {}", $op_name, offset, destination)
+                writeln!(out, "{} {} -> {}", $op_name, offset, destination)?;
             }};
         }
         macro_rules! invoke {
             ($op_name:expr) => {{
                 let constant = *bytes.next().unwrap().1 as usize;
                 let arg_count = *bytes.next().unwrap().1 as u8;
-                print!("{} ({} args) {} ", $op_name, arg_count, constant);
+                write!(out, "{} ({} args) {} ", $op_name, arg_count, constant)?;
                 let constant = &self.constants[constant];
-                println!("{:?}", ValueDisplay(constant, &objects));
+                writeln!(out, "{:?}", ValueDisplay(constant, &objects))?;
             }};
         }
         while let Some((addr, &b)) = bytes.next() {
-            print!("{addr:04} ");
+            let pos = self.coords(addr);
+            write!(out, "{addr:04} {}:{} ", pos.row(), pos.col())?;
             match b.try_into().unwrap() {
                 OpCode::Constant => {
                     constant!("constant");
@@ -178,18 +183,21 @@ impl Chunk {
                 OpCode::Closure => {
                     let index = *bytes.next().unwrap().1 as usize;
                     let arg = &self.constants[index];
-                    print!("closure {} ", index);
-                    println!("{:?}", ValueDisplay(arg, objects));
+                    write!(out, "closure {} ", index)?;
+                    writeln!(out, "{:?}", ValueDisplay(arg, objects))?;
                     let function = arg.try_as_function().unwrap();
                     let function = &objects[function];
                     for _ in 0..function.upvalue_count {
                         let (addr, is_local) = bytes.next().unwrap();
                         let (_, index) = bytes.next().unwrap();
-                        println!(
-                            "{addr:04}     {} {}",
-                            (if *is_local == 1 { "local" } else { "upvalue" }),
-                            index
-                        )
+                        writeln!(
+                            out,
+                            "{detail:04} {row}:{col}     {kind} {index}",
+                            detail = addr,
+                            row = pos.row(),
+                            col = pos.col(),
+                            kind = if *is_local == 1 { "local" } else { "upvalue" },
+                        )?;
                     }
                 }
                 OpCode::GetUpvalue => {
@@ -199,7 +207,7 @@ impl Chunk {
                     byte!("set_upvalue")
                 }
                 OpCode::CloseUpvalue => {
-                    simple!("close_upvalue")
+                    simple!("close_upvalue");
                 }
                 OpCode::Class => {
                     constant!("class");
@@ -217,7 +225,7 @@ impl Chunk {
                     invoke!("invoke")
                 }
                 OpCode::Inherit => {
-                    simple!("inherit")
+                    simple!("inherit");
                 }
                 OpCode::GetSuper => {
                     constant!("get_super")
