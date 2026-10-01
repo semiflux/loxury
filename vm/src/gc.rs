@@ -5,7 +5,25 @@ use std::ops::{Index, IndexMut};
 use std::{/*collections::HashMap,*/ mem};
 use fxhash::{FxHashMap as HashMap};
 
-use crate::chunk::{BoundMethod, Class, Closure, Function, Instance, ObjUpvalue, Value};
+use crate::chunk::{
+    BoundMethod, Class, Closure, Function, Instance, Native, ObjUpvalue, Value,
+};
+
+// arena id rides in the top byte of every handle (MSB mask), so a
+// handle alone identifies both the arena and the slot. nan-boxed
+// `Value`s store exactly this pair as their object payload.
+pub const TAG_FUNCTION: u8 = 1;
+pub const TAG_UPVALUE: u8 = 2;
+pub const TAG_CLOSURE: u8 = 3;
+pub const TAG_CLASS: u8 = 4;
+pub const TAG_INSTANCE: u8 = 5;
+pub const TAG_BOUND_METHOD: u8 = 6;
+pub const TAG_STRING: u8 = 7;
+pub const TAG_NATIVE: u8 = 8;
+
+const TAG_SHIFT: u32 = usize::BITS - 8;
+const TAG_MASK: usize = 0xFFusize << TAG_SHIFT;
+const INDEX_MASK: usize = !TAG_MASK;
 
 #[derive(Default)]
 struct Interner {
@@ -91,11 +109,20 @@ impl<T> Hash for GcHandle<T> {
 }
 
 impl<T> GcHandle<T> {
-    fn new(index: usize) -> Self {
+    pub(crate) fn tagged(tag: u8, index: usize) -> Self {
+        debug_assert!(index <= INDEX_MASK, "handle index overflow");
         Self {
-            idx: index,
+            idx: ((tag as usize) << TAG_SHIFT) | index,
             _type: PhantomData,
         }
+    }
+
+    pub fn tag(&self) -> u8 {
+        (self.idx >> TAG_SHIFT) as u8
+    }
+
+    pub fn index(&self) -> usize {
+        self.idx & INDEX_MASK
     }
 }
 
@@ -116,11 +143,12 @@ pub trait Mark<T> {
 
 pub trait _Allocate {
     type Item;
-    fn alloc(&mut self, value: Self::Item) -> (GcHandle<Self::Item>, usize);
+    // raw slot index; the `Heap` wrapper tags it on the way out
+    fn alloc(&mut self, value: Self::Item) -> (usize, usize);
 }
 
 macro_rules! define_heap {
-    ($name:ident { $($arena:ident: $ty:ty),* $(,)? }) => {
+    ($name:ident { $($arena:ident: $ty:ty = $tag:expr),* $(,)? }) => {
         // #[derive(Default)]
         pub struct $name {
             $($arena: $ty,)*
@@ -151,21 +179,23 @@ macro_rules! define_heap {
 
             impl Allocate<<$ty as _Allocate>::Item> for $name {
                 fn alloc(&mut self, value: <$ty as _Allocate>::Item) -> GcHandle<<$ty as _Allocate>::Item> {
-                    let (handle, bytes) = self.$arena.alloc(value);
+                    let (index, bytes) = self.$arena.alloc(value);
                     self.bytes_allocated += bytes;
-                    handle
+                    GcHandle::tagged($tag, index)
                 }
             }
 
             impl Index<GcHandle<<$ty as _Allocate>::Item>> for $name {
                 type Output = <$ty as Index<GcHandle<<$ty as _Allocate>::Item>>>::Output;
                 fn index(&self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &Self::Output {
+                    debug_assert_eq!(idx.tag(), $tag, "handle/arena mismatch");
                     &self.$arena[idx]
                 }
             }
 
             impl IndexMut<GcHandle<<$ty as _Allocate>::Item>> for $name {
                 fn index_mut(&mut self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &mut Self::Output {
+                    debug_assert_eq!(idx.tag(), $tag, "handle/arena mismatch");
                     &mut self.$arena[idx]
                 }
             }
@@ -174,13 +204,14 @@ macro_rules! define_heap {
 }
 
 define_heap!(Heap {
-    arena_function: Arena<Function>,
-    arena_upvalue:  Arena<ObjUpvalue>,
-    arena_closure:  Arena<Closure>,
-    arena_class: Arena<Class>,
-    arena_instance: Arena<Instance>,
-    arena_bound_method: Arena<BoundMethod>,
-    arena_string:   StringArena,
+    arena_function: Arena<Function> = TAG_FUNCTION,
+    arena_upvalue:  Arena<ObjUpvalue> = TAG_UPVALUE,
+    arena_closure:  Arena<Closure> = TAG_CLOSURE,
+    arena_class: Arena<Class> = TAG_CLASS,
+    arena_instance: Arena<Instance> = TAG_INSTANCE,
+    arena_bound_method: Arena<BoundMethod> = TAG_BOUND_METHOD,
+    arena_string:   StringArena = TAG_STRING,
+    arena_native: Arena<Native> = TAG_NATIVE,
 });
 
 impl Heap {
@@ -193,6 +224,7 @@ impl Heap {
         freed += self.arena_class.sweep();
         freed += self.arena_instance.sweep();
         freed += self.arena_bound_method.sweep();
+        freed += self.arena_native.sweep();
         self.bytes_allocated -= freed;
         self.next_gc = (2 * self.bytes_allocated).max(1024 * 256);
     }
@@ -205,7 +237,7 @@ impl Heap {
 impl<T> _Allocate for Arena<T> {
     type Item = T;
 
-    fn alloc(&mut self, value: T) -> (GcHandle<T>, usize) {
+    fn alloc(&mut self, value: T) -> (usize, usize) {
         let pos = if let Some(pos) = self.recycle.pop() {
             self.objects[pos] = GcObject {
                 value,
@@ -222,7 +254,7 @@ impl<T> _Allocate for Arena<T> {
             self.live.push(true);
             pos
         };
-        (GcHandle::new(pos), mem::size_of::<T>())
+        (pos, mem::size_of::<T>())
     }
 }
 
@@ -247,11 +279,12 @@ impl<T> Arena<T> {
 
 impl<T> Mark<T> for Arena<T> {
     fn mark(&self, idx: GcHandle<T>) -> bool {
-        debug_assert!(self.live[idx.idx], "attempted to mark a freed slot");
-        if self.objects[idx.idx].marked.get() {
+        let idx = idx.index();
+        debug_assert!(self.live[idx], "attempted to mark a freed slot");
+        if self.objects[idx].marked.get() {
             return true;
         }
-        self.objects[idx.idx].marked.set(true);
+        self.objects[idx].marked.set(true);
         false
     }
 }
@@ -259,15 +292,17 @@ impl<T> Mark<T> for Arena<T> {
 impl<T> Index<GcHandle<T>> for Arena<T> {
     type Output = T;
     fn index(&self, idx: GcHandle<T>) -> &T {
-        debug_assert!(self.live[idx.idx], "use-after-free");
-        &self.objects[idx.idx].value
+        let idx = idx.index();
+        debug_assert!(self.live[idx], "use-after-free");
+        &self.objects[idx].value
     }
 }
 
 impl<T> IndexMut<GcHandle<T>> for Arena<T> {
     fn index_mut(&mut self, idx: GcHandle<T>) -> &mut T {
-        debug_assert!(self.live[idx.idx], "use-after-free");
-        &mut self.objects[idx.idx].value
+        let idx = idx.index();
+        debug_assert!(self.live[idx], "use-after-free");
+        &mut self.objects[idx].value
     }
 }
 
@@ -278,16 +313,16 @@ pub struct StringArena {
 
 impl _Allocate for StringArena {
     type Item = String;
-    fn alloc(&mut self, value: Self::Item) -> (GcHandle<Self::Item>, usize) {
+    fn alloc(&mut self, value: Self::Item) -> (usize, usize) {
         let index = self.interner.intern(&value);
-        (GcHandle::new(index as usize), value.len())
+        (index as usize, value.len())
     }
 }
 
 impl Index<GcHandle<String>> for StringArena {
     type Output = str;
     fn index(&self, index: GcHandle<String>) -> &Self::Output {
-        self.interner.lookup(index.idx as u32)
+        self.interner.lookup(index.index() as u32)
     }
 }
 
@@ -358,29 +393,28 @@ impl Trace for Instance {
 }
 
 impl Trace for Value {
+    // shared by both representations; every object kind marks its arena
     fn trace(&self, heap: &Heap) {
-        match self {
-            Self::String(v) => {
-                heap.mark(*v);
-            }
-            Self::Function(v) => {
-                heap.mark(*v);
-            }
-            Self::Closure(v) => {
-                heap.mark(*v);
-            }
-            Self::Class(v) => {
-                heap.mark(*v);
-            }
-            Self::Instance(v) => {
-                heap.mark(*v);
-            }
-            Self::Method(v) => {
-                heap.mark(*v);
-            }
-            _ => (),
+        if let Ok(v) = self.try_as_string() {
+            heap.mark(v);
+        } else if let Ok(v) = self.try_as_function() {
+            heap.mark(v);
+        } else if let Ok(v) = self.try_as_native() {
+            heap.mark(v);
+        } else if let Ok(v) = self.try_as_closure() {
+            heap.mark(v);
+        } else if let Ok(v) = self.try_as_class() {
+            heap.mark(v);
+        } else if let Ok(v) = self.try_as_instance() {
+            heap.mark(v);
+        } else if let Ok(v) = self.try_as_method() {
+            heap.mark(v);
         }
     }
+}
+
+impl Trace for Native {
+    fn trace(&self, _heap: &Heap) {}
 }
 
 impl Trace for BoundMethod {

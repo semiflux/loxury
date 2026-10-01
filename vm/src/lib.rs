@@ -6,6 +6,8 @@ mod location;
 pub mod vm;
 #[cfg(feature = "playground")]
 pub mod play;
+#[cfg(feature = "nan-boxing")]
+pub mod nanbox;
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};

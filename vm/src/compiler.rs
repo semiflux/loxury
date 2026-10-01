@@ -596,7 +596,7 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
 
     fn identifier_constant(&mut self, name: String, coords: Coords) -> u8 {
         let value = self.objects.alloc(name);
-        self.make_constant(Value::String(value), coords)
+        self.make_constant(Value::string(value), coords)
     }
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
@@ -788,7 +788,7 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
         let function_obj = self.objects.alloc(function);
 
         self.emit_op(OpCode::Closure, coords);
-        let function = self.make_constant(Value::Function(function_obj), coords);
+        let function = self.make_constant(Value::function(function_obj), coords);
         self.emit_byte(function, coords);
 
         for upvalue in &*upvalues {
@@ -1084,7 +1084,7 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
     }
 
     fn number(&mut self, token: &AtCoords<Token<'_>>) {
-        self.emit_constant(Value::Number(token.span().parse().unwrap()), token.coords());
+        self.emit_constant(Value::number(token.span().parse().unwrap()), token.coords());
     }
 
     fn or(&mut self, token: &AtCoords<Token<'_>>) {
@@ -1098,7 +1098,7 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
 
     fn string(&mut self, token: &AtCoords<Token<'_>>) {
         let s = self.objects.alloc(token.span().to_owned());
-        self.emit_constant(Value::String(s), token.coords())
+        self.emit_constant(Value::string(s), token.coords())
     }
 
     fn resolve_local(&mut self, name: &AtCoords<Token<'_>>) -> Option<u8> {

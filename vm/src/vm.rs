@@ -1,8 +1,8 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
 use crate::chunk::{
-    BoundMethod, Class, Closure, Function, FunctionDisplay, FunctionKind, Instance, ObjUpvalue,
-    OpCode, Value, ValueDisplay,
+    BoundMethod, Class, Closure, Function, FunctionDisplay, FunctionKind, Instance, Native,
+    ObjUpvalue, OpCode, Value, ValueDisplay,
 };
 use crate::compiler::Compiler;
 use crate::gc::{Allocate, GcHandle, Heap, Mark, Trace};
@@ -50,8 +50,8 @@ fn dump_function<D: FmtWrite>(f: &Function, heap: &Heap, out: &mut D) {
     let _ = writeln!(out, "---{}---", FunctionDisplay(f, heap));
     let _ = f.chunk.disassemble(heap, out);
     for constant in &f.chunk.constants {
-        if let Value::Function(h) = constant {
-            dump_function(&heap[*h], heap, out);
+        if let Ok(h) = constant.try_as_function() {
+            dump_function(&heap[h], heap, out);
         }
     }
 }
@@ -82,16 +82,16 @@ impl<W: Write, E: Write> Vm<W, E> {
             err,
         };
         ret.define_native("clock", 0, |_| {
-            Value::Number(UNIX_EPOCH.elapsed().unwrap().as_secs_f64())
+            Value::number(UNIX_EPOCH.elapsed().unwrap().as_secs_f64())
         });
         ret
     }
 
     pub fn define_native(&mut self, name: &str, arity: u8, f: fn(&[Value]) -> Value) {
         let name = self.alloc(name.to_owned());
-        self.stack.push(Value::String(name));
-        self.globals
-            .insert(name, Value::NativeFunction { arity, f });
+        self.stack.push(Value::string(name));
+        let native = self.alloc(Native::new(arity, f));
+        self.globals.insert(name, Value::native(native));
         self.stack.pop();
     }
 
@@ -117,41 +117,44 @@ impl<W: Write, E: Write> Vm<W, E> {
 
     fn call_value(&mut self, arg_count: u8) -> Result<(), AtCoords<RunError>> {
         let base = self.stack.len() - 1 - arg_count as usize;
-        match self.stack[base] {
-            Value::NativeFunction { arity, f } => {
-                if arity != arg_count {
-                    self.error(RunError::WrongArity(arity, arg_count))?;
-                }
-                let result = f(&self.stack[base + 1..]);
-                // TODO: use `Vec::truncate`
-                for _ in 0..arg_count + 1 {
-                    self.stack.pop();
-                }
-                self.stack.push(result);
+        let callee = self.stack[base];
+        if let Ok(n) = callee.try_as_native() {
+            let (arity, f) = {
+                let native = &self.objects[n];
+                (native.arity, native.f)
+            };
+            if arity != arg_count {
+                self.error(RunError::WrongArity(arity, arg_count))?;
+            }
+            let result = f(&self.stack[base + 1..]);
+            // TODO: use `Vec::truncate`
+            for _ in 0..arg_count + 1 {
+                self.stack.pop();
+            }
+            self.stack.push(result);
+            Ok(())
+        } else if let Ok(c) = callee.try_as_closure() {
+            self.call_closure(c, arg_count)
+        } else if let Ok(c) = callee.try_as_class() {
+            let instance = self.alloc(Instance::new(c));
+            let base = self.stack.len() - 1 - arg_count as usize;
+            self.stack[base] = Value::instance(instance);
+            let class = &self.objects[c];
+            if let Some(initializer) = class.methods.get(&self.init_string) {
+                self.call_closure(initializer.try_as_closure().unwrap(), arg_count)
+            } else if arg_count != 0 {
+                self.error(RunError::WrongArity(0, arg_count))
+            } else {
                 Ok(())
             }
-            Value::Closure(c) => self.call_closure(c, arg_count),
-            Value::Class(c) => {
-                let instance = self.alloc(Instance::new(c));
-                let base = self.stack.len() - 1 - arg_count as usize;
-                self.stack[base] = Value::Instance(instance);
-                let class = &self.objects[c];
-                if let Some(initializer) = class.methods.get(&self.init_string) {
-                    self.call_closure(initializer.try_as_closure().unwrap(), arg_count)
-                } else if arg_count != 0 {
-                    self.error(RunError::WrongArity(0, arg_count))
-                } else {
-                    Ok(())
-                }
-            }
-            Value::Method(m) => {
-                let i = self.objects[m].receiver;
-                let c = self.objects[m].method;
-                let base = self.stack.len() - 1 - arg_count as usize;
-                self.stack[base] = i;
-                self.call_closure(c, arg_count)
-            }
-            _ => self.error(RunError::NotCallable),
+        } else if let Ok(m) = callee.try_as_method() {
+            let i = self.objects[m].receiver;
+            let c = self.objects[m].method;
+            let base = self.stack.len() - 1 - arg_count as usize;
+            self.stack[base] = i;
+            self.call_closure(c, arg_count)
+        } else {
+            self.error(RunError::NotCallable)
         }
     }
 
@@ -179,7 +182,7 @@ impl<W: Write, E: Write> Vm<W, E> {
             );
             let bound = self.alloc(bound);
             self.stack.pop();
-            self.stack.push(Value::Method(bound));
+            self.stack.push(Value::method(bound));
             Ok(())
         } else {
             let name = &self.objects[name];
@@ -215,7 +218,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         let closure = self.alloc(Closure::new(function));
 
         self.frames.push(CallFrame::new(closure, 0));
-        self.stack.push(Value::Closure(closure));
+        self.stack.push(Value::closure(closure));
         self.execute().map_err(|e| {
             let _ = writeln!(self.err, "{e}");
         })
@@ -235,10 +238,12 @@ impl<W: Write, E: Write> Vm<W, E> {
     }
 
     fn is_falsey(value: Value) -> bool {
-        match value {
-           Value::Nil => true,
-            Value::Bool(b) => !b,
-            _ => false,
+        if value.is_nil() {
+            true
+        } else if value.is_bool() {
+            !value.as_bool()
+        } else {
+            false
         }
     }
 
@@ -292,103 +297,88 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::Add => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a + b))
-                        }
-                        (Value::String(a), Value::String(b)) => {
-                            let value = self.objects[a].to_owned() + &self.objects[b];
-                            let value = self.alloc(value);
-                            self.stack.push(Value::String(value));
-                        }
-                        _ => return self.error(RunError::ExpectedNumbersOrStrings),
+                    if a.is_number() && b.is_number() {
+                        self.stack.push(Value::number(a.as_number() + b.as_number()))
+                    } else if a.is_string() && b.is_string() {
+                        let a = a.try_as_string().unwrap();
+                        let b = b.try_as_string().unwrap();
+                        let value = self.objects[a].to_owned() + &self.objects[b];
+                        let value = self.alloc(value);
+                        self.stack.push(Value::string(value));
+                    } else {
+                        return self.error(RunError::ExpectedNumbersOrStrings);
                     }
                 }
                 OpCode::Subtract => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a - b))
-                        }
-                        _ => return self.error(RunError::ExpectedNumbers),
+                    if a.is_number() && b.is_number() {
+                        self.stack.push(Value::number(a.as_number() - b.as_number()))
+                    } else {
+                        return self.error(RunError::ExpectedNumbers);
                     }
                 }
                 OpCode::Multiply => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a * b))
-                        }
-                        _ => return self.error(RunError::ExpectedNumbers),
+                    if a.is_number() && b.is_number() {
+                        self.stack.push(Value::number(a.as_number() * b.as_number()))
+                    } else {
+                        return self.error(RunError::ExpectedNumbers);
                     }
                 }
                 OpCode::Divide => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a / b))
-                        }
-                        _ => return self.error(RunError::ExpectedNumbers),
+                    if a.is_number() && b.is_number() {
+                        self.stack.push(Value::number(a.as_number() / b.as_number()))
+                    } else {
+                        return self.error(RunError::ExpectedNumbers);
                     }
                 }
-                OpCode::Negate => match self.stack.pop().unwrap() {
-                    Value::Number(n) => self.stack.push(Value::Number(-n)),
-                    _ => self.error(RunError::ExpectedNumber)?,
-                },
+                OpCode::Negate => {
+                    let v = self.stack.pop().unwrap();
+                    if v.is_number() {
+                        self.stack.push(Value::number(-v.as_number()))
+                    } else {
+                        return self.error(RunError::ExpectedNumber);
+                    }
+                }
                 OpCode::Nil => {
-                    self.stack.push(Value::Nil);
+                    self.stack.push(Value::nil());
                 }
                 OpCode::True => {
-                    self.stack.push(Value::Bool(true));
+                    self.stack.push(Value::boolean(true));
                 }
                 OpCode::False => {
-                    self.stack.push(Value::Bool(false));
+                    self.stack.push(Value::boolean(false));
                 }
                 OpCode::Not => {
                     let value = Self::is_falsey(self.stack.pop().unwrap());
-                    self.stack.push(Value::Bool(value));
+                    self.stack.push(Value::boolean(value));
                 }
                 OpCode::Equal => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     // TODO: implement separate function
-                    self.stack.push(Value::Bool(match (a, b) {
-                        (Value::Bool(a), Value::Bool(b)) => a == b,
-                        (Value::Nil, Value::Nil) => true,
-                        (Value::Number(a), Value::Number(b)) => a == b,
-                        (Value::String(a), Value::String(b)) => a == b,
-                        (Value::Function(a), Value::Function(b)) => a == b,
-                        (Value::Closure(a), Value::Closure(b)) => a == b,
-                        (Value::Class(a), Value::Class(b)) => a == b,
-                        (Value::Instance(a), Value::Instance(b)) => a == b,
-                        (Value::Method(a), Value::Method(b)) => a == b,
-                        (
-                            Value::NativeFunction { arity: arity_a, f: f_a },
-                            Value::NativeFunction { arity: arity_b, f: f_b },
-                        ) => {
-                            arity_a == arity_b
-                                && std::ptr::fn_addr_eq(f_a, f_b)
-                        }
-                        _ => false,
-                    }));
+                    self.stack.push(Value::boolean(a.values_equal(&b)));
                 }
                 OpCode::Greater => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => self.stack.push(Value::Bool(a > b)),
-                        _ => return self.error(RunError::ExpectedNumbers),
+                    if a.is_number() && b.is_number() {
+                        self.stack.push(Value::boolean(a.as_number() > b.as_number()))
+                    } else {
+                        return self.error(RunError::ExpectedNumbers);
                     }
                 }
                 OpCode::Less => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => self.stack.push(Value::Bool(a < b)),
-                        _ => return self.error(RunError::ExpectedNumbers),
+                    if a.is_number() && b.is_number() {
+                        self.stack.push(Value::boolean(a.as_number() < b.as_number()))
+                    } else {
+                        return self.error(RunError::ExpectedNumbers);
                     }
                 }
                 OpCode::Print => {
@@ -457,7 +447,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     let function = read_constant!().try_as_function().unwrap();
                     let closure = Closure::new(function);
                     let closure_obj = self.alloc(closure);
-                    self.stack.push(Value::Closure(closure_obj));
+                    self.stack.push(Value::closure(closure_obj));
 
                     let closure = &self.objects[closure_obj];
                     let upvalue_count = self.objects[closure.function].upvalue_count;
@@ -500,7 +490,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::Class => {
                     let name = read_constant!().try_as_string().unwrap();
                     let class = self.alloc(Class::new(name));
-                    self.stack.push(Value::Class(class));
+                    self.stack.push(Value::class(class));
                 }
                 OpCode::GetProperty => {
                     let value = self.stack.last().unwrap();
@@ -540,12 +530,12 @@ impl<W: Write, E: Write> Vm<W, E> {
                     let method = read_constant!().try_as_string().unwrap();
                     let arg_count = read_byte!() as usize;
                     let base = self.stack.len() - 1 - arg_count;
-                    let receiver = &self.stack[base];
-                    let Value::Instance(instance) = receiver else {
-                        let v = ValueDisplay(receiver, &self.objects).to_string();
-                        return self.error(RunError::NotAnInstance(v))
+                    let receiver = self.stack[base];
+                    let Ok(instance) = receiver.try_as_instance() else {
+                        let v = ValueDisplay(&receiver, &self.objects).to_string();
+                        return self.error(RunError::NotAnInstance(v));
                     };
-                    let instance = &self.objects[*instance];
+                    let instance = &self.objects[instance];
                     if let Some(m) = instance.fields.get(&method) {
                         self.stack[base] = *m;
                         self.call_value(arg_count as u8)
