@@ -117,10 +117,12 @@ impl<T> GcHandle<T> {
         }
     }
 
+    #[inline(always)]
     pub fn tag(&self) -> u8 {
         (self.idx >> TAG_SHIFT) as u8
     }
 
+    #[inline(always)]
     pub fn index(&self) -> usize {
         self.idx & INDEX_MASK
     }
@@ -187,6 +189,7 @@ macro_rules! define_heap {
 
             impl Index<GcHandle<<$ty as _Allocate>::Item>> for $name {
                 type Output = <$ty as Index<GcHandle<<$ty as _Allocate>::Item>>>::Output;
+                #[inline(always)]
                 fn index(&self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &Self::Output {
                     debug_assert_eq!(idx.tag(), $tag, "handle/arena mismatch");
                     &self.$arena[idx]
@@ -194,6 +197,7 @@ macro_rules! define_heap {
             }
 
             impl IndexMut<GcHandle<<$ty as _Allocate>::Item>> for $name {
+                #[inline(always)]
                 fn index_mut(&mut self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &mut Self::Output {
                     debug_assert_eq!(idx.tag(), $tag, "handle/arena mismatch");
                     &mut self.$arena[idx]
@@ -291,6 +295,7 @@ impl<T> Mark<T> for Arena<T> {
 
 impl<T> Index<GcHandle<T>> for Arena<T> {
     type Output = T;
+    #[inline(always)]
     fn index(&self, idx: GcHandle<T>) -> &T {
         let idx = idx.index();
         debug_assert!(self.live[idx], "use-after-free");
@@ -299,6 +304,7 @@ impl<T> Index<GcHandle<T>> for Arena<T> {
 }
 
 impl<T> IndexMut<GcHandle<T>> for Arena<T> {
+    #[inline(always)]
     fn index_mut(&mut self, idx: GcHandle<T>) -> &mut T {
         let idx = idx.index();
         debug_assert!(self.live[idx], "use-after-free");

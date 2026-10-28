@@ -77,67 +77,83 @@ impl Value {
         Self::obj(TAG_BOUND_METHOD, h.index())
     }
 
+    #[inline(always)]
     pub fn is_number(&self) -> bool {
         self.0 & QNAN != QNAN
     }
 
+    #[inline(always)]
     pub fn is_nil(&self) -> bool {
         self.0 == NIL_VAL
     }
 
+    #[inline(always)]
     pub fn is_bool(&self) -> bool {
         (self.0 | 1) == TRUE_VAL
     }
 
+    #[inline(always)]
     fn is_obj(&self) -> bool {
         self.0 & (QNAN | SIGN_BIT) == (QNAN | SIGN_BIT)
     }
 
     // valid only under `is_obj`; the tag space is our arena ids
+    #[inline(always)]
     fn kind(&self) -> u8 {
         (self.0 >> 32) as u8
     }
 
+    #[inline(always)]
     fn slot(&self) -> usize {
         (self.0 & INDEX_MASK) as usize
     }
 
+    #[inline(always)]
     pub fn is_string(&self) -> bool {
         self.is_obj() && self.kind() == TAG_STRING
     }
 
+    #[inline(always)]
     pub fn is_function(&self) -> bool {
         self.is_obj() && self.kind() == TAG_FUNCTION
     }
 
+    #[inline(always)]
     pub fn is_native(&self) -> bool {
         self.is_obj() && self.kind() == TAG_NATIVE
     }
 
+    #[inline(always)]
     pub fn is_closure(&self) -> bool {
         self.is_obj() && self.kind() == TAG_CLOSURE
     }
 
+    #[inline(always)]
     pub fn is_class(&self) -> bool {
         self.is_obj() && self.kind() == TAG_CLASS
     }
 
+    #[inline(always)]
     pub fn is_instance(&self) -> bool {
         self.is_obj() && self.kind() == TAG_INSTANCE
     }
 
+    #[inline(always)]
     pub fn is_method(&self) -> bool {
         self.is_obj() && self.kind() == TAG_BOUND_METHOD
     }
 
+    #[inline(always)]
     pub fn as_bool(&self) -> bool {
         self.0 == TRUE_VAL
     }
 
+    #[inline(always)]
     pub fn as_number(&self) -> f64 {
         f64::from_bits(self.0)
     }
 
+    #[inline(always)]
     pub fn values_equal(&self, other: &Self) -> bool {
         if self.is_number() && other.is_number() {
             self.as_number() == other.as_number()

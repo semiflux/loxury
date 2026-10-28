@@ -22,14 +22,31 @@ struct CallFrame {
     closure: GcHandle<Closure>,
     ip: usize,
     base: usize,
+    // cached chunk views: both buffers are fixed once compilation ends, so
+    // they outlive the frame; saves a heap walk per bytecode byte
+    code: *const u8,
+    code_len: usize,
+    constants: *const Value,
+    constants_len: usize,
 }
 
 impl CallFrame {
-    fn new(closure: GcHandle<Closure>, base: usize) -> Self {
+    #[inline]
+    fn new(
+        closure: GcHandle<Closure>,
+        function: GcHandle<Function>,
+        base: usize,
+        objects: &Heap,
+    ) -> Self {
+        let (code, code_len, constants, constants_len) = objects[function].chunk.view();
         Self {
             closure,
             base,
             ip: 0,
+            code,
+            code_len,
+            constants,
+            constants_len,
         }
     }
 }
@@ -95,14 +112,15 @@ impl<W: Write, E: Write> Vm<W, E> {
         self.stack.pop();
     }
 
+    #[inline(always)]
     fn call_closure(
         &mut self,
         closure: GcHandle<Closure>,
         arg_count: u8,
     ) -> Result<(), AtCoords<RunError>> {
         // TODO: possibly pass base instead of arg_count?
-        let c = &self.objects[closure];
-        let arity = self.objects[c.function].arity;
+        let function = self.objects[closure].function;
+        let arity = self.objects[function].arity;
         if arity != arg_count {
             self.error(RunError::WrongArity(arity, arg_count))?;
         }
@@ -111,10 +129,12 @@ impl<W: Write, E: Write> Vm<W, E> {
         }
         // FIXME: repeated operation
         let base = self.stack.len() - 1 - arg_count as usize;
-        self.frames.push(CallFrame::new(closure, base));
+        self.frames
+            .push(CallFrame::new(closure, function, base, &self.objects));
         Ok(())
     }
 
+    #[inline(always)]
     fn call_value(&mut self, arg_count: u8) -> Result<(), AtCoords<RunError>> {
         let base = self.stack.len() - 1 - arg_count as usize;
         let callee = self.stack[base];
@@ -158,6 +178,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         }
     }
 
+    #[inline(always)]
     fn invoke_from_class(&mut self, class: GcHandle<Class>, name: GcHandle<String>, arg_count: u8) -> Result<(), AtCoords<RunError>> {
         let class = &self.objects[class];
         match class.methods.get(&name) {
@@ -217,7 +238,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         let function = self.alloc(function);
         let closure = self.alloc(Closure::new(function));
 
-        self.frames.push(CallFrame::new(closure, 0));
+        self.frames.push(CallFrame::new(closure, function, 0, &self.objects));
         self.stack.push(Value::closure(closure));
         self.execute().map_err(|e| {
             let _ = writeln!(self.err, "{e}");
@@ -252,10 +273,9 @@ impl<W: Write, E: Write> Vm<W, E> {
             macro_rules! read_byte {
                 () => {{
                     let frame = self.frames.last_mut().unwrap();
-                    let closure = &self.objects[frame.closure];
-                    let function = &self.objects[closure.function];
-                    let ip = frame.ip;
-                    let ret = function.chunk.byte_at(ip);
+                    // ip stays inside compiler-emitted bytecode
+                    debug_assert!(frame.ip < frame.code_len);
+                    let ret = unsafe { *frame.code.add(frame.ip) };
                     frame.ip += 1;
                     ret
                 }};
@@ -267,11 +287,10 @@ impl<W: Write, E: Write> Vm<W, E> {
             }
             macro_rules! read_constant {
                 () => {{
-                    let frame = self.frames.last_mut().unwrap();
-                    let closure = &self.objects[frame.closure];
-                    let function = &self.objects[closure.function];
-                    // let index = read_byte!();
-                    function.chunk.get_constant(read_byte!())
+                    let index = read_byte!() as usize;
+                    let frame = self.frames.last().unwrap();
+                    debug_assert!(index < frame.constants_len);
+                    unsafe { *frame.constants.add(index) }
                 }};
             }
             // TODO: add macro for binary expressions
@@ -292,7 +311,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                 }
                 OpCode::Constant => {
                     let constant = read_constant!();
-                    self.stack.push(*constant);
+                    self.stack.push(constant);
                 }
                 OpCode::Add => {
                     let b = self.stack.pop().unwrap();
@@ -572,7 +591,11 @@ impl<W: Write, E: Write> Vm<W, E> {
         }
     }
 
+    #[inline]
     fn close_upvalues(&mut self, last: usize) {
+        if self.open_upvalues.is_empty() {
+            return;
+        }
         // FIXME: ugly
         let mut top = self.open_upvalues.len();
         for upvalue in self.open_upvalues.iter().rev() {

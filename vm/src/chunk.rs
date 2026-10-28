@@ -28,7 +28,19 @@ impl Chunk {
         self.code.is_empty()
     }
 
-    // TODO: consider making unsafe, +3% boost
+    // raw views for the dispatch loop; both buffers are immutable once
+    // compilation ends, so they stay valid for the frame's lifetime
+    #[inline]
+    pub fn view(&self) -> (*const u8, usize, *const Value, usize) {
+        (
+            self.code.as_ptr(),
+            self.code.len(),
+            self.constants.as_ptr(),
+            self.constants.len(),
+        )
+    }
+
+    #[inline(always)]
     pub fn byte_at(&self, index: usize) -> u8 {
         self.code[index]
     }
@@ -51,6 +63,7 @@ impl Chunk {
         (self.constants.len() - 1) as u32
     }
 
+    #[inline(always)]
     pub fn get_constant(&self, index: u8) -> &Value {
         &self.constants[index as usize]
     }
@@ -398,46 +411,57 @@ impl Value {
         Self::Method(h)
     }
 
+    #[inline(always)]
     pub fn is_nil(&self) -> bool {
         matches!(self, Self::Nil)
     }
 
+    #[inline(always)]
     pub fn is_bool(&self) -> bool {
         matches!(self, Self::Bool(_))
     }
 
+    #[inline(always)]
     pub fn is_number(&self) -> bool {
         matches!(self, Self::Number(_))
     }
 
+    #[inline(always)]
     pub fn is_string(&self) -> bool {
         matches!(self, Self::String(_))
     }
 
+    #[inline(always)]
     pub fn is_function(&self) -> bool {
         matches!(self, Self::Function(_))
     }
 
+    #[inline(always)]
     pub fn is_native(&self) -> bool {
         matches!(self, Self::Native(_))
     }
 
+    #[inline(always)]
     pub fn is_closure(&self) -> bool {
         matches!(self, Self::Closure(_))
     }
 
+    #[inline(always)]
     pub fn is_class(&self) -> bool {
         matches!(self, Self::Class(_))
     }
 
+    #[inline(always)]
     pub fn is_instance(&self) -> bool {
         matches!(self, Self::Instance(_))
     }
 
+    #[inline(always)]
     pub fn is_method(&self) -> bool {
         matches!(self, Self::Method(_))
     }
 
+    #[inline(always)]
     pub fn as_bool(&self) -> bool {
         if let Self::Bool(b) = self {
             *b
@@ -446,6 +470,7 @@ impl Value {
         }
     }
 
+    #[inline(always)]
     pub fn as_number(&self) -> f64 {
         if let Self::Number(n) = self {
             *n
@@ -454,6 +479,7 @@ impl Value {
         }
     }
 
+    #[inline(always)]
     pub fn values_equal(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Bool(a), Self::Bool(b)) => a == b,
