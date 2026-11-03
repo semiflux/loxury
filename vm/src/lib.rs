@@ -3,11 +3,13 @@ pub mod compiler;
 mod gc;
 mod lex;
 mod location;
-pub mod vm;
 #[cfg(feature = "playground")]
 pub mod play;
+pub mod value;
+pub mod vm;
+// kept for compatibility with the old module path
 #[cfg(feature = "nan-boxing")]
-pub mod nanbox;
+pub use value::nanboxed as nanbox;
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
