@@ -22,31 +22,14 @@ struct CallFrame {
     closure: GcHandle<Closure>,
     ip: usize,
     base: usize,
-    // cached chunk views: both buffers are fixed once compilation ends, so
-    // they outlive the frame; saves a heap walk per bytecode byte
-    code: *const u8,
-    code_len: usize,
-    constants: *const Value,
-    constants_len: usize,
 }
 
 impl CallFrame {
-    #[inline]
-    fn new(
-        closure: GcHandle<Closure>,
-        function: GcHandle<Function>,
-        base: usize,
-        objects: &Heap,
-    ) -> Self {
-        let (code, code_len, constants, constants_len) = objects[function].chunk.view();
+    fn new(closure: GcHandle<Closure>, base: usize) -> Self {
         Self {
             closure,
             base,
             ip: 0,
-            code,
-            code_len,
-            constants,
-            constants_len,
         }
     }
 }
@@ -129,8 +112,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         }
         // FIXME: repeated operation
         let base = self.stack.len() - 1 - arg_count as usize;
-        self.frames
-            .push(CallFrame::new(closure, function, base, &self.objects));
+        self.frames.push(CallFrame::new(closure, base));
         Ok(())
     }
 
@@ -238,7 +220,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         let function = self.alloc(function);
         let closure = self.alloc(Closure::new(function));
 
-        self.frames.push(CallFrame::new(closure, function, 0, &self.objects));
+        self.frames.push(CallFrame::new(closure, 0));
         self.stack.push(Value::closure(closure));
         self.execute().map_err(|e| {
             let _ = writeln!(self.err, "{e}");
@@ -263,9 +245,9 @@ impl<W: Write, E: Write> Vm<W, E> {
             macro_rules! read_byte {
                 () => {{
                     let frame = self.frames.last_mut().unwrap();
-                    // ip stays inside compiler-emitted bytecode
-                    debug_assert!(frame.ip < frame.code_len);
-                    let ret = unsafe { *frame.code.add(frame.ip) };
+                    let closure = &self.objects[frame.closure];
+                    let function = &self.objects[closure.function];
+                    let ret = function.chunk.byte_at(frame.ip);
                     frame.ip += 1;
                     ret
                 }};
@@ -277,10 +259,10 @@ impl<W: Write, E: Write> Vm<W, E> {
             }
             macro_rules! read_constant {
                 () => {{
-                    let index = read_byte!() as usize;
+                    let index = read_byte!();
                     let frame = self.frames.last().unwrap();
-                    debug_assert!(index < frame.constants_len);
-                    unsafe { *frame.constants.add(index) }
+                    let closure = &self.objects[frame.closure];
+                    *self.objects[closure.function].chunk.get_constant(index)
                 }};
             }
             // TODO: add macro for binary expressions

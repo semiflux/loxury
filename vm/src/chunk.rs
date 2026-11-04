@@ -28,18 +28,6 @@ impl Chunk {
         self.code.is_empty()
     }
 
-    // raw views for the dispatch loop; both buffers are immutable once
-    // compilation ends, so they stay valid for the frame's lifetime
-    #[inline]
-    pub fn view(&self) -> (*const u8, usize, *const Value, usize) {
-        (
-            self.code.as_ptr(),
-            self.code.len(),
-            self.constants.as_ptr(),
-            self.constants.len(),
-        )
-    }
-
     #[inline(always)]
     pub fn byte_at(&self, index: usize) -> u8 {
         self.code[index]
