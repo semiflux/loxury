@@ -28,7 +28,7 @@ impl Chunk {
         self.code.is_empty()
     }
 
-    // TODO: consider making unsafe, +3% boost
+    #[inline(always)]
     pub fn byte_at(&self, index: usize) -> u8 {
         self.code[index]
     }
@@ -51,6 +51,7 @@ impl Chunk {
         (self.constants.len() - 1) as u32
     }
 
+    #[inline(always)]
     pub fn get_constant(&self, index: u8) -> &Value {
         &self.constants[index as usize]
     }
@@ -64,7 +65,7 @@ impl Chunk {
         }
     }
 
-    pub fn disassemble<W: fmt::Write>(&self, objects: &Heap, out: &mut W) -> fmt::Result {
+    pub fn disassemble(&self, objects: &Heap, out: &mut impl fmt::Write) -> fmt::Result {
         let mut bytes = self.code.iter().enumerate();
         macro_rules! simple {
             ($op_name:expr) => {
@@ -326,66 +327,17 @@ impl TryFrom<u8> for OpCode {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Value {
-    Bool(bool),
-    Nil,
-    Number(f64),
-    String(GcHandle<String>),
-    Function(GcHandle<Function>),
-    // TODO: ensure not wrapping is ok
-    NativeFunction { arity: u8, f: fn(&[Value]) -> Value },
-    Closure(GcHandle<Closure>),
-    Class(GcHandle<Class>),
-    Instance(GcHandle<Instance>),
-    Method(GcHandle<BoundMethod>),
+pub use crate::value::Value;
+
+#[derive(Debug)]
+pub struct Native {
+    pub arity: u8,
+    pub f: fn(&[Value]) -> Value,
 }
 
-impl Value {
-    // failure is reported at the call site; nothing to carry
-    #[allow(clippy::result_unit_err)]
-    pub fn try_as_string(&self) -> Result<GcHandle<String>, ()> {
-        if let Self::String(v) = self {
-            Ok(*v)
-        } else {
-            Err(())
-        }
-    }
-
-    #[allow(clippy::result_unit_err)]
-    pub fn try_as_function(&self) -> Result<GcHandle<Function>, ()> {
-        if let Self::Function(v) = self {
-            Ok(*v)
-        } else {
-            Err(())
-        }
-    }
-
-    #[allow(clippy::result_unit_err)]
-    pub fn try_as_instance(&self) -> Result<GcHandle<Instance>, ()> {
-        if let Self::Instance(v) = self {
-            Ok(*v)
-        } else {
-            Err(())
-        }
-    }
-
-    #[allow(clippy::result_unit_err)]
-    pub fn try_as_class(&self) -> Result<GcHandle<Class>, ()> {
-        if let Self::Class(v) = self {
-            Ok(*v)
-        } else {
-            Err(())
-        }
-    }
-
-    #[allow(clippy::result_unit_err)]
-    pub fn try_as_closure(&self) -> Result<GcHandle<Closure>, ()> {
-        if let Self::Closure(v) = self {
-            Ok(*v)
-        } else {
-            Err(())
-        }
+impl Native {
+    pub fn new(arity: u8, f: fn(&[Value]) -> Value) -> Self {
+        Self { arity, f }
     }
 }
 
@@ -410,83 +362,64 @@ impl<'a> Display for FunctionDisplay<'a> {
 impl<'a> Display for ValueDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self(&v, o) = self;
-        match v {
-            Value::Bool(v) => write!(f, "{v}"),
-            Value::Nil => write!(f, "nil"),
-            Value::Number(v) => write!(f, "{v}"),
-            Value::String(v) => {
-                let v = &o[v];
-                write!(f, "{v}")
-            }
-            Value::Function(v) => {
-                let v = &o[v];
-                write!(f, "{}", FunctionDisplay(v, o))
-            }
-            Value::NativeFunction { .. } => {
-                write!(f, "<native fn>")
-            }
-            Value::Closure(v) => {
-                let function = o[v].function;
-                let function = &o[function];
-                write!(f, "{}", FunctionDisplay(function, o))
-            }
-            Value::Class(v) => {
-                let class = &o[v];
-                let name = &o[class.name];
-                write!(f, "{name}")
-            }
-            Value::Instance(v) => {
-                let class = o[v].class;
-                let class = &o[class];
-                let name = &o[class.name];
-                write!(f, "{name} instance")
-            }
-            Value::Method(v) => {
-                let method = o[v].method;
-                let function = o[method].function;
-                write!(f, "{}", FunctionDisplay(&o[function], o))
-            }
+        if v.is_nil() {
+            write!(f, "nil")
+        } else if let Ok(b) = v.try_as_bool() {
+            write!(f, "{b}")
+        } else if let Ok(n) = v.try_as_number() {
+            write!(f, "{n}")
+        } else if let Ok(v) = v.try_as_string() {
+            write!(f, "{}", &o[v])
+        } else if let Ok(v) = v.try_as_function() {
+            write!(f, "{}", FunctionDisplay(&o[v], o))
+        } else if v.try_as_native().is_ok() {
+            write!(f, "<native fn>")
+        } else if let Ok(v) = v.try_as_closure() {
+            let function = o[v].function;
+            write!(f, "{}", FunctionDisplay(&o[function], o))
+        } else if let Ok(v) = v.try_as_class() {
+            write!(f, "{}", &o[o[v].name])
+        } else if let Ok(v) = v.try_as_instance() {
+            let class = o[v].class;
+            write!(f, "{} instance", &o[o[class].name])
+        } else if let Ok(v) = v.try_as_method() {
+            let method = o[v].method;
+            let function = o[method].function;
+            write!(f, "{}", FunctionDisplay(&o[function], o))
+        } else {
+            write!(f, "<unknown>")
         }
     }
 }
 
 impl<'a> Debug for ValueDisplay<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> { 
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let Self(value, heap) = self;
-        match value {
-            Value::Bool(b) => write!(f, "bool({b})"),
-            Value::Nil => write!(f, "nil"),
-            Value::Number(n) => write!(f, "number({n})"),
-            Value::String(h) => write!(f, "string(\"{}\")", &heap[*h]),
-            Value::Function(h) => {
-                let func = &heap[*h];
-                write!(f, "function({})", FunctionDisplay(func, heap))
-            }
-            Value::NativeFunction { .. } => {
-                write!(f, "function(<native fn>)")
-            }
-            Value::Closure(h) => {
-                let closure = &heap[*h];
-                let func = &heap[closure.function];
-                write!(f, "closure({})", FunctionDisplay(func, heap))
-            }
-            Value::Class(h) => {
-                let class = &heap[*h];
-                let name = &heap[class.name];
-                write!(f, "class(\"{name}\")")
-            }
-            Value::Instance(h) => {
-                let instance = &heap[*h];
-                let class = &heap[instance.class];
-                let name = &heap[class.name];
-                write!(f, "instance(of: \"{name}\")")
-            }
-            Value::Method(h) => {
-                let bound = &heap[*h];
-                let closure = &heap[bound.method];
-                let func = &heap[closure.function];
-                write!(f, "method({})", FunctionDisplay(func, heap))
-            }
+        if let Ok(b) = value.try_as_bool() {
+            write!(f, "bool({b})")
+        } else if value.is_nil() {
+            write!(f, "nil")
+        } else if let Ok(n) = value.try_as_number() {
+            write!(f, "number({n})")
+        } else if let Ok(h) = value.try_as_string() {
+            write!(f, "string(\"{}\")", &heap[h])
+        } else if let Ok(h) = value.try_as_function() {
+            write!(f, "function({})", FunctionDisplay(&heap[h], heap))
+        } else if value.try_as_native().is_ok() {
+            write!(f, "function(<native fn>)")
+        } else if let Ok(h) = value.try_as_closure() {
+            write!(f, "closure({})", FunctionDisplay(&heap[heap[h].function], heap))
+        } else if let Ok(h) = value.try_as_class() {
+            write!(f, "class(\"{}\")", &heap[heap[h].name])
+        } else if let Ok(h) = value.try_as_instance() {
+            let class = heap[h].class;
+            write!(f, "instance(of: \"{}\")", &heap[heap[class].name])
+        } else if let Ok(h) = value.try_as_method() {
+            let closure = heap[h].method;
+            let func = heap[closure].function;
+            write!(f, "method({})", FunctionDisplay(&heap[func], heap))
+        } else {
+            write!(f, "<unknown>")
         }
     }
 }
