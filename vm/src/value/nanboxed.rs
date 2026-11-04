@@ -106,7 +106,7 @@ impl Value {
 }
 
 macro_rules! object_values {
-    ($($ctor:ident => $try:ident, $tag:ident, $ty:ty;)*) => {
+    ($($ctor:ident => $ty:ty, $try:ident, $tag:ident;)*) => {
         impl Value {
             $(
                 pub fn $ctor(handle: GcHandle<$ty>) -> Self {
@@ -127,13 +127,14 @@ macro_rules! object_values {
 }
 
 object_values! {
-    string => try_as_string, TAG_STRING, String;
-    function => try_as_function, TAG_FUNCTION, Function;
-    native => try_as_native, TAG_NATIVE, Native;
-    closure => try_as_closure, TAG_CLOSURE, Closure;
-    class => try_as_class, TAG_CLASS, Class;
-    instance => try_as_instance, TAG_INSTANCE, Instance;
-    method => try_as_method, TAG_BOUND_METHOD, BoundMethod;
+    // ctor => type, accessor, tag
+    string   => String,      try_as_string,   TAG_STRING;
+    function => Function,    try_as_function, TAG_FUNCTION;
+    native   => Native,      try_as_native,   TAG_NATIVE;
+    closure  => Closure,     try_as_closure,  TAG_CLOSURE;
+    class    => Class,       try_as_class,    TAG_CLASS;
+    instance => Instance,    try_as_instance, TAG_INSTANCE;
+    method   => BoundMethod, try_as_method,   TAG_BOUND_METHOD;
 }
 
 impl std::fmt::Debug for Value {
