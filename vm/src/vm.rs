@@ -63,7 +63,7 @@ pub struct Vm<W = Stdout, E = Stderr> {
     pub err: E,
 }
 
-fn dump_function<D: FmtWrite>(f: &Function, heap: &Heap, out: &mut D) {
+fn dump_function(f: &Function, heap: &Heap, out: &mut impl FmtWrite) {
     let _ = writeln!(out, "---{}---", FunctionDisplay(f, heap));
     let _ = f.chunk.disassemble(heap, out);
     for constant in &f.chunk.constants {
@@ -213,7 +213,7 @@ impl<W: Write, E: Write> Vm<W, E> {
 
     // unit Err: errors are already reported with locations
     #[allow(clippy::result_unit_err)]
-    pub fn run<D: FmtWrite>(&mut self, source: &str, disasm: Option<&mut D>) -> Result<(), ()> {
+    pub fn run(&mut self, source: &str, disasm: Option<&mut impl FmtWrite>) -> Result<(), ()> {
         // clear previous junk
         // FIXME: check if needs optimization
         self.stack = ArrayVec::new();
@@ -256,16 +256,6 @@ impl<W: Write, E: Write> Vm<W, E> {
         let function = &self.objects[closure].function;
         let function = &self.objects[*function];
         Err(function.chunk.coords(ip).locate(error))
-    }
-
-    fn is_falsey(value: Value) -> bool {
-        if value.is_nil() {
-            true
-        } else if value.is_bool() {
-            !value.as_bool()
-        } else {
-            false
-        }
     }
 
     fn execute(&mut self) -> Result<(), AtCoords<RunError>> {
@@ -316,11 +306,9 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::Add => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(Value::number(a.as_number() + b.as_number()))
-                    } else if a.is_string() && b.is_string() {
-                        let a = a.try_as_string().unwrap();
-                        let b = b.try_as_string().unwrap();
+                    if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
+                        self.stack.push(Value::number(a + b))
+                    } else if let (Ok(a), Ok(b)) = (a.try_as_string(), b.try_as_string()) {
                         let value = self.objects[a].to_owned() + &self.objects[b];
                         let value = self.alloc(value);
                         self.stack.push(Value::string(value));
@@ -331,8 +319,8 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::Subtract => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(Value::number(a.as_number() - b.as_number()))
+                    if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
+                        self.stack.push(Value::number(a - b))
                     } else {
                         return self.error(RunError::ExpectedNumbers);
                     }
@@ -340,8 +328,8 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::Multiply => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(Value::number(a.as_number() * b.as_number()))
+                    if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
+                        self.stack.push(Value::number(a * b))
                     } else {
                         return self.error(RunError::ExpectedNumbers);
                     }
@@ -349,16 +337,16 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::Divide => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(Value::number(a.as_number() / b.as_number()))
+                    if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
+                        self.stack.push(Value::number(a / b))
                     } else {
                         return self.error(RunError::ExpectedNumbers);
                     }
                 }
                 OpCode::Negate => {
                     let v = self.stack.pop().unwrap();
-                    if v.is_number() {
-                        self.stack.push(Value::number(-v.as_number()))
+                    if let Ok(v) = v.try_as_number() {
+                        self.stack.push(Value::number(-v))
                     } else {
                         return self.error(RunError::ExpectedNumber);
                     }
@@ -373,7 +361,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     self.stack.push(Value::boolean(false));
                 }
                 OpCode::Not => {
-                    let value = Self::is_falsey(self.stack.pop().unwrap());
+                    let value = self.stack.pop().unwrap().is_falsey();
                     self.stack.push(Value::boolean(value));
                 }
                 OpCode::Equal => {
@@ -385,8 +373,8 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::Greater => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(Value::boolean(a.as_number() > b.as_number()))
+                    if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
+                        self.stack.push(Value::boolean(a > b))
                     } else {
                         return self.error(RunError::ExpectedNumbers);
                     }
@@ -394,8 +382,8 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::Less => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(Value::boolean(a.as_number() < b.as_number()))
+                    if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
+                        self.stack.push(Value::boolean(a < b))
                     } else {
                         return self.error(RunError::ExpectedNumbers);
                     }
@@ -446,7 +434,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                 }
                 OpCode::JumpIfFalse => {
                     let offset = u16::from_be_bytes([read_byte!(), read_byte!()]);
-                    if Self::is_falsey(*self.stack.last().unwrap()) {
+                    if self.stack.last().unwrap().is_falsey() {
                         self.frames.last_mut().unwrap().ip += offset as usize;
                     }
                 }

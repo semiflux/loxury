@@ -77,7 +77,7 @@ impl Chunk {
         }
     }
 
-    pub fn disassemble<W: fmt::Write>(&self, objects: &Heap, out: &mut W) -> fmt::Result {
+    pub fn disassemble(&self, objects: &Heap, out: &mut impl fmt::Write) -> fmt::Result {
         let mut bytes = self.code.iter().enumerate();
         macro_rules! simple {
             ($op_name:expr) => {
@@ -376,15 +376,15 @@ impl<'a> Display for ValueDisplay<'a> {
         let Self(&v, o) = self;
         if v.is_nil() {
             write!(f, "nil")
-        } else if v.is_bool() {
-            write!(f, "{}", v.as_bool())
-        } else if v.is_number() {
-            write!(f, "{}", v.as_number())
+        } else if let Ok(b) = v.try_as_bool() {
+            write!(f, "{b}")
+        } else if let Ok(n) = v.try_as_number() {
+            write!(f, "{n}")
         } else if let Ok(v) = v.try_as_string() {
             write!(f, "{}", &o[v])
         } else if let Ok(v) = v.try_as_function() {
             write!(f, "{}", FunctionDisplay(&o[v], o))
-        } else if v.is_native() {
+        } else if v.try_as_native().is_ok() {
             write!(f, "<native fn>")
         } else if let Ok(v) = v.try_as_closure() {
             let function = o[v].function;
@@ -407,17 +407,17 @@ impl<'a> Display for ValueDisplay<'a> {
 impl<'a> Debug for ValueDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let Self(value, heap) = self;
-        if value.is_bool() {
-            write!(f, "bool({})", value.as_bool())
+        if let Ok(b) = value.try_as_bool() {
+            write!(f, "bool({b})")
         } else if value.is_nil() {
             write!(f, "nil")
-        } else if value.is_number() {
-            write!(f, "number({})", value.as_number())
+        } else if let Ok(n) = value.try_as_number() {
+            write!(f, "number({n})")
         } else if let Ok(h) = value.try_as_string() {
             write!(f, "string(\"{}\")", &heap[h])
         } else if let Ok(h) = value.try_as_function() {
             write!(f, "function({})", FunctionDisplay(&heap[h], heap))
-        } else if value.is_native() {
+        } else if value.try_as_native().is_ok() {
             write!(f, "function(<native fn>)")
         } else if let Ok(h) = value.try_as_closure() {
             write!(f, "closure({})", FunctionDisplay(&heap[heap[h].function], heap))

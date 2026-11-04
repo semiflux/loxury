@@ -50,18 +50,13 @@ impl Value {
     }
 
     #[inline(always)]
-    pub fn is_number(&self) -> bool {
-        self.0 & QNAN != QNAN
-    }
-
-    #[inline(always)]
     pub fn is_nil(&self) -> bool {
         self.0 == NIL_VAL
     }
 
     #[inline(always)]
-    pub fn is_bool(&self) -> bool {
-        (self.0 | 1) == TRUE_VAL
+    pub fn is_falsey(&self) -> bool {
+        self.0 == NIL_VAL || self.0 == FALSE_VAL
     }
 
     #[inline(always)]
@@ -80,20 +75,30 @@ impl Value {
         (self.0 & INDEX_MASK) as usize
     }
 
+    #[allow(clippy::result_unit_err)]
     #[inline(always)]
-    pub fn as_bool(&self) -> bool {
-        self.0 == TRUE_VAL
+    pub fn try_as_bool(&self) -> Result<bool, ()> {
+        if self.0 == TRUE_VAL || self.0 == FALSE_VAL {
+            Ok(self.0 == TRUE_VAL)
+        } else {
+            Err(())
+        }
     }
 
+    #[allow(clippy::result_unit_err)]
     #[inline(always)]
-    pub fn as_number(&self) -> f64 {
-        f64::from_bits(self.0)
+    pub fn try_as_number(&self) -> Result<f64, ()> {
+        if self.0 & QNAN != QNAN {
+            Ok(f64::from_bits(self.0))
+        } else {
+            Err(())
+        }
     }
 
     #[inline(always)]
     pub fn values_equal(&self, other: &Self) -> bool {
-        if self.is_number() && other.is_number() {
-            self.as_number() == other.as_number()
+        if self.0 & QNAN != QNAN && other.0 & QNAN != QNAN {
+            f64::from_bits(self.0) == f64::from_bits(other.0)
         } else {
             self.0 == other.0
         }
@@ -101,21 +106,16 @@ impl Value {
 }
 
 macro_rules! object_values {
-    ($($ctor:ident => $is:ident, $try:ident, $tag:ident, $ty:ty;)*) => {
+    ($($ctor:ident => $try:ident, $tag:ident, $ty:ty;)*) => {
         impl Value {
             $(
                 pub fn $ctor(handle: GcHandle<$ty>) -> Self {
                     Self::obj($tag, handle.index())
                 }
 
-                #[inline(always)]
-                pub fn $is(&self) -> bool {
-                    self.is_obj() && self.kind() == $tag
-                }
-
                 #[allow(clippy::result_unit_err)]
                 pub fn $try(&self) -> Result<GcHandle<$ty>, ()> {
-                    if self.$is() {
+                    if self.is_obj() && self.kind() == $tag {
                         Ok(GcHandle::tagged($tag, self.slot()))
                     } else {
                         Err(())
@@ -127,23 +127,23 @@ macro_rules! object_values {
 }
 
 object_values! {
-    string => is_string, try_as_string, TAG_STRING, String;
-    function => is_function, try_as_function, TAG_FUNCTION, Function;
-    native => is_native, try_as_native, TAG_NATIVE, Native;
-    closure => is_closure, try_as_closure, TAG_CLOSURE, Closure;
-    class => is_class, try_as_class, TAG_CLASS, Class;
-    instance => is_instance, try_as_instance, TAG_INSTANCE, Instance;
-    method => is_method, try_as_method, TAG_BOUND_METHOD, BoundMethod;
+    string => try_as_string, TAG_STRING, String;
+    function => try_as_function, TAG_FUNCTION, Function;
+    native => try_as_native, TAG_NATIVE, Native;
+    closure => try_as_closure, TAG_CLOSURE, Closure;
+    class => try_as_class, TAG_CLASS, Class;
+    instance => try_as_instance, TAG_INSTANCE, Instance;
+    method => try_as_method, TAG_BOUND_METHOD, BoundMethod;
 }
 
 impl std::fmt::Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_number() {
-            write!(f, "number({})", self.as_number())
+        if let Ok(n) = self.try_as_number() {
+            write!(f, "number({n})")
         } else if self.is_nil() {
             write!(f, "nil")
-        } else if self.is_bool() {
-            write!(f, "bool({})", self.as_bool())
+        } else if let Ok(b) = self.try_as_bool() {
+            write!(f, "bool({b})")
         } else if self.is_obj() {
             write!(f, "obj(kind={}, slot={})", self.kind(), self.slot())
         } else {

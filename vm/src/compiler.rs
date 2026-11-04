@@ -365,10 +365,7 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
         }
     }
 
-    fn next_token_if<F>(&mut self, f: F) -> Option<AtCoords<Token<'a>>>
-    where
-        F: Fn(TokenKind) -> bool,
-    {
+    fn next_token_if(&mut self, f: impl Fn(TokenKind) -> bool) -> Option<AtCoords<Token<'a>>> {
         self.peek_token()
             .filter(|t| f(t.kind()))
             .inspect(|_| {

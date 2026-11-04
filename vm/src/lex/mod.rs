@@ -39,11 +39,7 @@ impl<'a> Text<'a> {
         })
     }
 
-    fn advance_while<F>(&mut self, accept: F) -> usize
-    where
-        Self: Sized,
-        F: Fn(char) -> bool,
-    {
+    fn advance_while(&mut self, accept: impl Fn(char) -> bool) -> usize {
         let mut end = 0;
         while let Some(c) = self.next_if(&accept) {
             end += c.len_utf8();
@@ -51,11 +47,7 @@ impl<'a> Text<'a> {
         end
     }
 
-    fn take_str_while<'b, F>(&'b mut self, accept: F) -> &'a str
-    where
-        Self: Sized,
-        F: Fn(char) -> bool,
-    {
+    fn take_str_while<'b>(&'b mut self, accept: impl Fn(char) -> bool) -> &'a str {
         &self.text.as_str()[..self.advance_while(accept)]
     }
 }

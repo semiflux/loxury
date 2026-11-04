@@ -4,7 +4,7 @@
 //! single-word representation with the same public API.
 
 #[cfg(feature = "nan-boxing")]
-pub mod nanboxed;
+mod nanboxed;
 #[cfg(not(feature = "nan-boxing"))]
 mod tagged;
 
