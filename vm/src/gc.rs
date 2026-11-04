@@ -64,7 +64,7 @@ impl Interner {
             self.buf.push_str(name);
             &self.buf[start..]
         };
-        &*(interned as *const str)
+        unsafe { &*(interned as *const str) }
     }
 }
 
