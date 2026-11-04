@@ -620,7 +620,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         let update = self.stack.last().unwrap();
         match upvalue {
             ObjUpvalue::Open(slot) => self.stack[*slot] = *update,
-            ObjUpvalue::Closed(ref mut value) => *value = *update,
+            ObjUpvalue::Closed(value) => *value = *update,
         }
     }
 

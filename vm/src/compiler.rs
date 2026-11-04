@@ -830,23 +830,23 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
                 self.errors.report(&coords.locate(CompileError::TooMuchClassNesting).into())
             }
 
-            if self.next_token_if_eq(TokenKind::Less).is_some() {
-                if let Some(superclass) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
-                    if class.span() == superclass.span() {
-                        self.errors.report(&superclass.co_locate(CompileError::SelfInheritance).into());
-                    }
-
-                    self.variable(&superclass, false);
-
-                    self.begin_scope();
-                    self.add_local(superclass.co_locate(Token::new(TokenKind::Identifier, "super")));
-                    self.define_variable(0, superclass.coords());
-
-                    self.variable(&class, false);
-                    self.emit_op(OpCode::Inherit, superclass.coords());
-                    self.class_compiler.mark_has_superclass();
+            if self.next_token_if_eq(TokenKind::Less).is_some()
+                && let Some(superclass) =
+                    self.consume(TokenKind::Identifier, CompileError::ExpectedClassName)
+            {
+                if class.span() == superclass.span() {
+                    self.errors.report(&superclass.co_locate(CompileError::SelfInheritance).into());
                 }
 
+                self.variable(&superclass, false);
+
+                self.begin_scope();
+                self.add_local(superclass.co_locate(Token::new(TokenKind::Identifier, "super")));
+                self.define_variable(0, superclass.coords());
+
+                self.variable(&class, false);
+                self.emit_op(OpCode::Inherit, superclass.coords());
+                self.class_compiler.mark_has_superclass();
             }
 
             self.named_variable(&class, false);

@@ -361,7 +361,7 @@ impl<'a> Display for FunctionDisplay<'a> {
 
 impl<'a> Display for ValueDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self(&v, o) = self;
+        let (v, o) = (self.0, self.1);
         if v.is_nil() {
             write!(f, "nil")
         } else if let Ok(b) = v.try_as_bool() {

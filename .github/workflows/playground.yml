@@ -1,5 +1,6 @@
 name: playground
 on:
+  workflow_dispatch:
   push:
     branches: [master]
     paths: [vm/**]
@@ -19,7 +20,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p vm --lib --release --target wasm32-unknown-unknown --features playground
       - name: install wasm-bindgen
-        run: cargo install wasm-bindgen-cli
+        run: |
+          version=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;q}' Cargo.lock)
+          echo "installing wasm-bindgen-cli $version"
+          cargo install wasm-bindgen-cli --version "$version"
       - run: wasm-bindgen --target web --out-dir vm/play/pkg --no-typescript target/wasm32-unknown-unknown/release/vm.wasm
       - uses: actions/upload-pages-artifact@v3
         with:
