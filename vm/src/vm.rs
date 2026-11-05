@@ -10,7 +10,7 @@ use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
 // use std::collections::HashMap;
-use fxhash::FxHashMap as HashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 use std::fmt::Write as FmtWrite;
 use std::io::{Stderr, Stdout, Write};
