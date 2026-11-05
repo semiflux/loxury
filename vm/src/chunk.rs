@@ -1,5 +1,5 @@
 // use std::collections::HashMap;
-use fxhash::FxHashMap as HashMap;
+use rustc_hash::FxHashMap as HashMap;
 use std::fmt::{self, Debug, Display};
 
 // use crate::gc::{Gc, GcHandle, Manager};

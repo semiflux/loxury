@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::{/*collections::HashMap,*/ mem};
-use fxhash::{FxHashMap as HashMap};
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::chunk::{
     BoundMethod, Class, Closure, Function, Instance, Native, ObjUpvalue, Value,
