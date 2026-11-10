@@ -1,4 +1,4 @@
-//! NaN-boxed `Value` (opt-in via the `nan-boxing` feature).
+//! NaN-boxed `Value` (the default representation).
 //!
 //! Layout mirrors clox (`value.h`): immediates live outside the quiet-NaN
 //! range, heap handles are tagged payloads under `SIGN_BIT | QNAN`.

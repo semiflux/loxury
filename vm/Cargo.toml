@@ -12,5 +12,6 @@ wasm-bindgen = { version = "0.2", optional = true }
 serde_json = { version = "1", optional = true }
 
 [features]
+default = ["nan-boxing"]
 playground = ["dep:wasm-bindgen", "dep:serde_json"]
 nan-boxing = []
