@@ -1,5 +1,6 @@
 /target
 *.lox
+!vm/benches/programs/*.lox
 perf.data
 perf.data.old
 input

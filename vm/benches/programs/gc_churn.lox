@@ -1,0 +1,74 @@
+// GC stress benchmark.
+//
+// Two pressures at once:
+//   * a large live tree that must be traced on every collection,
+//   * a high rate of short-lived allocations (trees and linked cells) that
+//     keep triggering collections.
+//
+// Deliberately deterministic: no clock() loop, so both VMs perform exactly the
+// same work and the checksum can be compared. Numbers only, to avoid the known
+// string/equality divergences between the two implementations.
+
+class Node {
+  init(depth) {
+    this.depth = depth;
+    this.left = nil;
+    this.right = nil;
+  }
+}
+
+class Cell {
+  init(value, next) {
+    this.value = value;
+    this.next = next;
+  }
+}
+
+fun build(depth) {
+  var n = Node(depth);
+  if (depth > 0) {
+    n.left = build(depth - 1);
+    n.right = build(depth - 1);
+  }
+  return n;
+}
+
+fun size(n) {
+  if (n == nil) return 0;
+  return 1 + size(n.left) + size(n.right);
+}
+
+fun sum_list(c) {
+  var total = 0;
+  while (c != nil) {
+    total = total + c.value;
+    c = c.next;
+  }
+  return total;
+}
+
+// 16383 nodes retained for the entire run: every collection marks all of them.
+var live = build(13);
+var live_size = size(live);
+
+var checksum = 0;
+var round = 0;
+while (round < 4000) {
+  // 511 nodes, unreachable as soon as the next round starts.
+  var junk = build(8);
+  checksum = checksum + size(junk);
+
+  // 200 cells, likewise garbage by the end of the round.
+  var head = nil;
+  var i = 0;
+  while (i < 200) {
+    head = Cell(i, head);
+    i = i + 1;
+  }
+  checksum = checksum + sum_list(head);
+
+  round = round + 1;
+}
+
+print live_size;
+print checksum;
