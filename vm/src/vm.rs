@@ -571,8 +571,9 @@ impl<W: Write, E: Write> Vm<W, E> {
     fn close_upvalues(&mut self, last: usize) {
         // FIXME: ugly
         let mut top = self.open_upvalues.len();
-        for upvalue in self.open_upvalues.iter().rev() {
-            let upvalue = &mut self.objects[*upvalue];
+        while top > 0 {
+            let upvalue = self.open_upvalues[top - 1];
+            let upvalue = &mut self.objects[upvalue];
             // shouldn't enter else, bug in that case
             let ObjUpvalue::Open(slot) = upvalue else { break };
             if *slot < last {
