@@ -200,6 +200,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         // FIXME: check if needs optimization
         self.stack = ArrayVec::new();
         self.frames = ArrayVec::new();
+        self.open_upvalues.clear();
 
         let mut lexer = Lexer::new(source).peekable();
         let function = {
@@ -217,7 +218,10 @@ impl<W: Write, E: Write> Vm<W, E> {
         if let Some(out) = disasm {
             dump_function(&function, &self.objects, out);
         }
+
+        function.trace(&self.objects);
         let function = self.alloc(function);
+        self.objects.mark(function);
         let closure = self.alloc(Closure::new(function));
 
         self.frames.push(CallFrame::new(closure, 0));
@@ -287,7 +291,9 @@ impl<W: Write, E: Write> Vm<W, E> {
                 }
                 OpCode::Add => {
                     let b = self.stack.pop().unwrap();
+                    b.trace(&self.objects);
                     let a = self.stack.pop().unwrap();
+                    a.trace(&self.objects);
                     if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
                         self.stack.push(Value::number(a + b))
                     } else if let (Ok(a), Ok(b)) = (a.try_as_string(), b.try_as_string()) {
@@ -563,18 +569,16 @@ impl<W: Write, E: Write> Vm<W, E> {
 
     #[inline]
     fn close_upvalues(&mut self, last: usize) {
-        if self.open_upvalues.is_empty() {
-            return;
-        }
         // FIXME: ugly
         let mut top = self.open_upvalues.len();
         for upvalue in self.open_upvalues.iter().rev() {
             let upvalue = &mut self.objects[*upvalue];
-            let slot = upvalue.as_open().unwrap();
-            if slot < last {
+            // shouldn't enter else, bug in that case
+            let ObjUpvalue::Open(slot) = upvalue else { break };
+            if *slot < last {
                 break;
             }
-            let value = self.stack[slot];
+            let value = self.stack[*slot];
             *upvalue = ObjUpvalue::Closed(value);
             top -= 1;
         }

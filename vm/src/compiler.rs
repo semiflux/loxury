@@ -415,8 +415,9 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
                 .sync(&coords.locate(CompileError::JumpTooWide).into());
         }
 
-        self.emit_byte(((offset & 0xff00) >> 8) as u8, coords);
-        self.emit_byte((offset & 0xff) as u8, coords);
+        let [hi, lo] = (offset as u16).to_be_bytes();
+        self.emit_byte(hi, coords);
+        self.emit_byte(lo, coords);
     }
 
     fn emit_jump(&mut self, op: OpCode, coords: Coords) -> usize {
@@ -442,8 +443,9 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
                 .sync(&coords.locate(CompileError::JumpTooWide).into())
         }
 
-        *self.current_chunk().at_mut(offset) = (jump & 0xff00) as u8;
-        *self.current_chunk().at_mut(offset + 1) = (jump & 0xff) as u8;
+        let [hi, lo] = (jump as u16).to_be_bytes();
+        *self.current_chunk().at_mut(offset) = hi;
+        *self.current_chunk().at_mut(offset + 1) = lo;
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
