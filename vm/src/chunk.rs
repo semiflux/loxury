@@ -1,6 +1,7 @@
 // use std::collections::HashMap;
 use rustc_hash::FxHashMap as HashMap;
 use std::fmt::{self, Debug, Display};
+use std::mem;
 
 // use crate::gc::{Gc, GcHandle, Manager};
 use crate::{
@@ -105,7 +106,7 @@ impl Chunk {
         while let Some((addr, &b)) = bytes.next() {
             let pos = self.coords(addr);
             write!(out, "{addr:04} {}:{} ", pos.row(), pos.col())?;
-            match b.try_into().unwrap() {
+            match unsafe { OpCode::from_byte(b)} {
                 OpCode::Constant => {
                     constant!("constant");
                 }
@@ -240,6 +241,7 @@ impl Chunk {
     }
 }
 
+#[repr(u8)]
 pub enum OpCode {
     Constant,
     Nil,
@@ -280,50 +282,12 @@ pub enum OpCode {
     Method,
 }
 
-impl TryFrom<u8> for OpCode {
-    type Error = ();
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Constant),
-            1 => Ok(Self::Nil),
-            2 => Ok(Self::True),
-            3 => Ok(Self::False),
-            4 => Ok(Self::Pop),
-            5 => Ok(Self::GetLocal),
-            6 => Ok(Self::SetLocal),
-            7 => Ok(Self::GetGlobal),
-            8 => Ok(Self::DefineGlobal),
-            9 => Ok(Self::SetGlobal),
-            10 => Ok(Self::GetUpvalue),
-            11 => Ok(Self::SetUpvalue),
-            12 => Ok(Self::GetProperty),
-            13 => Ok(Self::SetProperty),
-            14 => Ok(Self::GetSuper),
-            15 => Ok(Self::Equal),
-            16 => Ok(Self::Greater),
-            17 => Ok(Self::Less),
-            18 => Ok(Self::Add),
-            19 => Ok(Self::Subtract),
-            20 => Ok(Self::Multiply),
-            21 => Ok(Self::Divide),
-            22 => Ok(Self::Not),
-            23 => Ok(Self::Negate),
-            24 => Ok(Self::Print),
-            25 => Ok(Self::Jump),
-            26 => Ok(Self::JumpIfFalse),
-            27 => Ok(Self::Loop),
-            28 => Ok(Self::Call),
-            29 => Ok(Self::Invoke),
-            30 => Ok(Self::SuperInvoke),
-            31 => Ok(Self::Closure),
-            32 => Ok(Self::CloseUpvalue),
-            33 => Ok(Self::Return),
-            34 => Ok(Self::Class),
-            35 => Ok(Self::Inherit),
-            36 => Ok(Self::Method),
-            _ => Err(()),
-        }
+impl OpCode {
+    #[inline(always)]
+    pub unsafe fn from_byte(byte: u8) -> Self {
+        debug_assert!(byte <= OpCode::Method as u8);
+        unsafe { mem::transmute::<u8, Self>(byte) }
     }
 }
 

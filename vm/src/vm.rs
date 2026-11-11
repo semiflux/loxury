@@ -266,7 +266,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                 }};
             }
             // TODO: add macro for binary expressions
-            match read_byte!().try_into().unwrap() {
+            match unsafe { OpCode::from_byte(read_byte!()) } {
                 OpCode::Return => {
                     let result = self.stack.pop().unwrap();
                     let frame = self.frames.pop().unwrap();
