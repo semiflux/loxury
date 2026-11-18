@@ -168,6 +168,7 @@ macro_rules! define_heap {
         }
 
         $(
+            #[cfg(feature = "nan-boxing")]
             impl ArenaTag for <$ty as _Allocate>::Item {
                 const TAG: u8 = $tag;
             }
