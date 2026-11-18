@@ -6,10 +6,7 @@
 //! same MSB tag every `GcHandle` already carries.
 
 use crate::chunk::{BoundMethod, Class, Closure, Function, Instance, Native};
-use crate::gc::{
-    GcHandle, TAG_BOUND_METHOD, TAG_CLASS, TAG_CLOSURE, TAG_FUNCTION, TAG_INSTANCE, TAG_NATIVE,
-    TAG_STRING,
-};
+use crate::gc::{ GcHandle,ArenaTag};
 
 const QNAN: u64 = 0x7ffc_0000_0000_0000;
 const SIGN_BIT: u64 = 0x8000_0000_0000_0000;
@@ -27,11 +24,6 @@ const INDEX_MASK: u64 = 0xFFFF_FFFF;
 #[derive(Clone, Copy)]
 pub struct Value(u64);
 
-fn obj_val(kind: u8, index: usize) -> u64 {
-    debug_assert!((index as u64) <= INDEX_MASK, "handle index overflow");
-    SIGN_BIT | QNAN | ((kind as u64) << 32) | (index as u64)
-}
-
 impl Value {
     pub fn nil() -> Self {
         Self(NIL_VAL)
@@ -46,7 +38,8 @@ impl Value {
     }
 
     fn obj(kind: u8, index: usize) -> Self {
-        Self(obj_val(kind, index))
+        debug_assert!((index as u64) <= INDEX_MASK, "handle index overflow");
+        Self(SIGN_BIT | QNAN | ((kind as u64) << 32) | (index as u64))
     }
 
     #[inline(always)]
@@ -110,13 +103,13 @@ macro_rules! object_values {
         impl Value {
             $(
                 pub fn $ctor(handle: GcHandle<$ty>) -> Self {
-                    Self::obj($tag, handle.index())
+                    Self::obj(<$ty as ArenaTag>::TAG, handle.index() as usize)
                 }
 
                 #[allow(clippy::result_unit_err)]
                 pub fn $try(&self) -> Result<GcHandle<$ty>, ()> {
-                    if self.is_obj() && self.kind() == $tag {
-                        Ok(GcHandle::tagged($tag, self.slot()))
+                    if self.is_obj() && self.kind() == <$ty as ArenaTag>::TAG {
+                        Ok(GcHandle::new(self.slot()))
                     } else {
                         Err(())
                     }

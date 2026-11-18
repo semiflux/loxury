@@ -7,21 +7,28 @@ use std::{/*collections::HashMap,*/ mem};
 
 use crate::chunk::{BoundMethod, Class, Closure, Function, Instance, Native, ObjUpvalue, Value};
 
-// arena id rides in the top byte of every handle (MSB mask), so a
-// handle alone identifies both the arena and the slot. nan-boxed
-// `Value`s store exactly this pair as their object payload.
+#[cfg(feature = "nan-boxing")]
 pub const TAG_FUNCTION: u8 = 1;
+#[cfg(feature = "nan-boxing")]
 pub const TAG_UPVALUE: u8 = 2;
+#[cfg(feature = "nan-boxing")]
 pub const TAG_CLOSURE: u8 = 3;
+#[cfg(feature = "nan-boxing")]
 pub const TAG_CLASS: u8 = 4;
+#[cfg(feature = "nan-boxing")]
 pub const TAG_INSTANCE: u8 = 5;
+#[cfg(feature = "nan-boxing")]
 pub const TAG_BOUND_METHOD: u8 = 6;
+#[cfg(feature = "nan-boxing")]
 pub const TAG_STRING: u8 = 7;
+#[cfg(feature = "nan-boxing")]
 pub const TAG_NATIVE: u8 = 8;
 
-const TAG_SHIFT: u32 = usize::BITS - 8;
-const TAG_MASK: usize = 0xFFusize << TAG_SHIFT;
-const INDEX_MASK: usize = !TAG_MASK;
+// Given GcHandle<T>, TAG is retrieved from T
+#[cfg(feature = "nan-boxing")]
+pub trait ArenaTag {
+    const TAG: u8;
+}
 
 #[derive(Default)]
 struct Interner {
@@ -90,7 +97,7 @@ struct GcObject<T> {
 
 #[derive(Eq, Debug)]
 pub struct GcHandle<T> {
-    idx: usize,
+    idx: u32,
     _type: PhantomData<*mut T>,
 }
 
@@ -107,22 +114,16 @@ impl<T> Hash for GcHandle<T> {
 }
 
 impl<T> GcHandle<T> {
-    pub(crate) fn tagged(tag: u8, index: usize) -> Self {
-        debug_assert!(index <= INDEX_MASK, "handle index overflow");
+    pub(crate) fn new(index: usize) -> Self {
         Self {
-            idx: ((tag as usize) << TAG_SHIFT) | index,
+            idx: index as u32,
             _type: PhantomData,
         }
     }
 
     #[inline(always)]
-    pub fn tag(&self) -> u8 {
-        (self.idx >> TAG_SHIFT) as u8
-    }
-
-    #[inline(always)]
-    pub fn index(&self) -> usize {
-        self.idx & INDEX_MASK
+    pub fn index(&self) -> u32 {
+        self.idx
     }
 }
 
@@ -167,6 +168,10 @@ macro_rules! define_heap {
         }
 
         $(
+            impl ArenaTag for <$ty as _Allocate>::Item {
+                const TAG: u8 = $tag;
+            }
+
             impl Mark<<$ty as _Allocate>::Item> for $name {
                 fn mark(&self, handle: GcHandle<<$ty as _Allocate>::Item>) -> bool {
                     if !self.$arena.mark(handle) {
@@ -181,7 +186,7 @@ macro_rules! define_heap {
                 fn alloc(&mut self, value: <$ty as _Allocate>::Item) -> GcHandle<<$ty as _Allocate>::Item> {
                     let (index, bytes) = self.$arena.alloc(value);
                     self.bytes_allocated += bytes;
-                    GcHandle::tagged($tag, index)
+                    GcHandle::new(index)
                 }
             }
 
@@ -189,7 +194,6 @@ macro_rules! define_heap {
                 type Output = <$ty as Index<GcHandle<<$ty as _Allocate>::Item>>>::Output;
                 #[inline(always)]
                 fn index(&self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &Self::Output {
-                    debug_assert_eq!(idx.tag(), $tag, "handle/arena mismatch");
                     &self.$arena[idx]
                 }
             }
@@ -197,7 +201,6 @@ macro_rules! define_heap {
             impl IndexMut<GcHandle<<$ty as _Allocate>::Item>> for $name {
                 #[inline(always)]
                 fn index_mut(&mut self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &mut Self::Output {
-                    debug_assert_eq!(idx.tag(), $tag, "handle/arena mismatch");
                     &mut self.$arena[idx]
                 }
             }
@@ -282,11 +285,11 @@ impl<T> Arena<T> {
 impl<T> Mark<T> for Arena<T> {
     fn mark(&self, idx: GcHandle<T>) -> bool {
         let idx = idx.index();
-        debug_assert!(self.live[idx], "attempted to mark a freed slot");
-        if self.objects[idx].marked.get() {
+        debug_assert!(self.live[idx as usize], "attempted to mark a freed slot");
+        if self.objects[idx as usize].marked.get() {
             return true;
         }
-        self.objects[idx].marked.set(true);
+        self.objects[idx as usize].marked.set(true);
         false
     }
 }
@@ -296,8 +299,8 @@ impl<T> Index<GcHandle<T>> for Arena<T> {
     #[inline(always)]
     fn index(&self, idx: GcHandle<T>) -> &T {
         let idx = idx.index();
-        debug_assert!(self.live[idx], "use-after-free");
-        &self.objects[idx].value
+        debug_assert!(self.live[idx as usize], "use-after-free");
+        &self.objects[idx as usize].value
     }
 }
 
@@ -305,8 +308,8 @@ impl<T> IndexMut<GcHandle<T>> for Arena<T> {
     #[inline(always)]
     fn index_mut(&mut self, idx: GcHandle<T>) -> &mut T {
         let idx = idx.index();
-        debug_assert!(self.live[idx], "use-after-free");
-        &mut self.objects[idx].value
+        debug_assert!(self.live[idx as usize], "use-after-free");
+        &mut self.objects[idx as usize].value
     }
 }
 
