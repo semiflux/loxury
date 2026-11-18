@@ -106,7 +106,7 @@ impl Chunk {
         while let Some((addr, &b)) = bytes.next() {
             let pos = self.coords(addr);
             write!(out, "{addr:04} {}:{} ", pos.row(), pos.col())?;
-            match unsafe { OpCode::from_byte(b)} {
+            match unsafe { OpCode::from_byte(b) } {
                 OpCode::Constant => {
                     constant!("constant");
                 }
@@ -282,7 +282,6 @@ pub enum OpCode {
     Method,
 }
 
-
 impl OpCode {
     #[inline(always)]
     pub unsafe fn from_byte(byte: u8) -> Self {
@@ -372,7 +371,11 @@ impl<'a> Debug for ValueDisplay<'a> {
         } else if value.try_as_native().is_ok() {
             write!(f, "function(<native fn>)")
         } else if let Ok(h) = value.try_as_closure() {
-            write!(f, "closure({})", FunctionDisplay(&heap[heap[h].function], heap))
+            write!(
+                f,
+                "closure({})",
+                FunctionDisplay(&heap[heap[h].function], heap)
+            )
         } else if let Ok(h) = value.try_as_class() {
             write!(f, "class(\"{}\")", &heap[heap[h].name])
         } else if let Ok(h) = value.try_as_instance() {

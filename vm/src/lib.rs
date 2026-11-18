@@ -131,7 +131,7 @@ impl Display for RunError {
                 write!(f, "expected {expected} arguments, got {actual}")
             }
             Self::UninheritableValue => write!(f, "superclass must be a class"),
-            Self::StackOverflow => write!(f, "stack overflow")
+            Self::StackOverflow => write!(f, "stack overflow"),
         }
     }
 }
@@ -142,9 +142,6 @@ impl Error for RunError {}
 struct ArrayVec<T, const N: usize> {
     values: [MaybeUninit<T>; N],
     len: usize,
-}
-
-impl<T: Debug, const N: usize> ArrayVec<T, N> {
 }
 
 impl<T, const N: usize> ArrayVec<T, N> {
@@ -179,6 +176,18 @@ impl<T, const N: usize> ArrayVec<T, N> {
 
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self.values.as_mut_ptr() as *mut T, self.len) }
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        if len < self.len {
+            let excess = self.len - len;
+            self.len = len;
+            unsafe {
+                // safe because values[oldlen..] contains valid items
+                let base = self.values.as_mut_ptr().add(len).cast::<T>();
+                ptr::drop_in_place(ptr::slice_from_raw_parts_mut(base, excess));
+            }
+        }
     }
 }
 

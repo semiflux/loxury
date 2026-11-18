@@ -1,5 +1,5 @@
-use crate::location::{AtCoords, AtCoordsOrEof};
 use crate::CompileError;
+use crate::location::{AtCoords, AtCoordsOrEof};
 use std::str::Chars;
 
 mod token;

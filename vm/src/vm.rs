@@ -9,7 +9,6 @@ use crate::gc::{Allocate, GcHandle, Heap, Mark, Trace};
 use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
-// use std::collections::HashMap;
 use rustc_hash::FxHashMap as HashMap;
 
 use std::fmt::Write as FmtWrite;
@@ -56,7 +55,8 @@ fn dump_function(f: &Function, heap: &Heap, out: &mut impl FmtWrite) {
     }
 }
 
-impl<W: Write + Default, E: Write + Default> Default for Vm<W, E> {    fn default() -> Self {
+impl<W: Write + Default, E: Write + Default> Default for Vm<W, E> {
+    fn default() -> Self {
         Self::with_outputs(W::default(), E::default())
     }
 }
@@ -89,10 +89,9 @@ impl<W: Write, E: Write> Vm<W, E> {
 
     pub fn define_native(&mut self, name: &str, arity: u8, f: fn(&[Value]) -> Value) {
         let name = self.alloc(name.to_owned());
-        self.stack.push(Value::string(name));
+        self.objects.mark(name);
         let native = self.alloc(Native::new(arity, f));
         self.globals.insert(name, Value::native(native));
-        self.stack.pop();
     }
 
     #[inline(always)]
@@ -129,17 +128,13 @@ impl<W: Write, E: Write> Vm<W, E> {
                 self.error(RunError::WrongArity(arity, arg_count))?;
             }
             let result = f(&self.stack[base + 1..]);
-            // TODO: use `Vec::truncate`
-            for _ in 0..arg_count + 1 {
-                self.stack.pop();
-            }
+            self.stack.truncate(base);
             self.stack.push(result);
             Ok(())
         } else if let Ok(c) = callee.try_as_closure() {
             self.call_closure(c, arg_count)
         } else if let Ok(c) = callee.try_as_class() {
             let instance = self.alloc(Instance::new(c));
-            let base = self.stack.len() - 1 - arg_count as usize;
             self.stack[base] = Value::instance(instance);
             let class = &self.objects[c];
             if let Some(initializer) = class.methods.get(&self.init_string) {
@@ -152,7 +147,6 @@ impl<W: Write, E: Write> Vm<W, E> {
         } else if let Ok(m) = callee.try_as_method() {
             let i = self.objects[m].receiver;
             let c = self.objects[m].method;
-            let base = self.stack.len() - 1 - arg_count as usize;
             self.stack[base] = i;
             self.call_closure(c, arg_count)
         } else {
@@ -161,7 +155,12 @@ impl<W: Write, E: Write> Vm<W, E> {
     }
 
     #[inline(always)]
-    fn invoke_from_class(&mut self, class: GcHandle<Class>, name: GcHandle<String>, arg_count: u8) -> Result<(), AtCoords<RunError>> {
+    fn invoke_from_class(
+        &mut self,
+        class: GcHandle<Class>,
+        name: GcHandle<String>,
+        arg_count: u8,
+    ) -> Result<(), AtCoords<RunError>> {
         let class = &self.objects[class];
         match class.methods.get(&name) {
             Some(m) => Ok(self.call_closure(m.try_as_closure().unwrap(), arg_count)?),
@@ -269,7 +268,6 @@ impl<W: Write, E: Write> Vm<W, E> {
                     *self.objects[closure.function].chunk.get_constant(index)
                 }};
             }
-            // TODO: add macro for binary expressions
             match unsafe { OpCode::from_byte(read_byte!()) } {
                 OpCode::Return => {
                     let result = self.stack.pop().unwrap();
@@ -280,9 +278,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                         return Ok(());
                     }
 
-                    for _ in frame.base..self.stack.len() {
-                        self.stack.pop();
-                    }
+                    self.stack.truncate(frame.base);
                     self.stack.push(result);
                 }
                 OpCode::Constant => {
@@ -290,10 +286,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     self.stack.push(constant);
                 }
                 OpCode::Add => {
-                    let b = self.stack.pop().unwrap();
-                    b.trace(&self.objects);
-                    let a = self.stack.pop().unwrap();
-                    a.trace(&self.objects);
+                    let (b, a) = { (self.stack.pop().unwrap(), self.stack.pop().unwrap()) };
                     if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
                         self.stack.push(Value::number(a + b))
                     } else if let (Ok(a), Ok(b)) = (a.try_as_string(), b.try_as_string()) {
@@ -305,8 +298,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     }
                 }
                 OpCode::Subtract => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let (b, a) = (self.stack.pop().unwrap(), self.stack.pop().unwrap());
                     if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
                         self.stack.push(Value::number(a - b))
                     } else {
@@ -314,8 +306,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     }
                 }
                 OpCode::Multiply => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let (b, a) = { (self.stack.pop().unwrap(), self.stack.pop().unwrap()) };
                     if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
                         self.stack.push(Value::number(a * b))
                     } else {
@@ -323,8 +314,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     }
                 }
                 OpCode::Divide => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let (b, a) = { (self.stack.pop().unwrap(), self.stack.pop().unwrap()) };
                     if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
                         self.stack.push(Value::number(a / b))
                     } else {
@@ -353,14 +343,11 @@ impl<W: Write, E: Write> Vm<W, E> {
                     self.stack.push(Value::boolean(value));
                 }
                 OpCode::Equal => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    // TODO: implement separate function
+                    let (b, a) = { (self.stack.pop().unwrap(), self.stack.pop().unwrap()) };
                     self.stack.push(Value::boolean(a.values_equal(&b)));
                 }
                 OpCode::Greater => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let (b, a) = { (self.stack.pop().unwrap(), self.stack.pop().unwrap()) };
                     if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
                         self.stack.push(Value::boolean(a > b))
                     } else {
@@ -368,8 +355,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     }
                 }
                 OpCode::Less => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let (b, a) = { (self.stack.pop().unwrap(), self.stack.pop().unwrap()) };
                     if let (Ok(a), Ok(b)) = (a.try_as_number(), b.try_as_number()) {
                         self.stack.push(Value::boolean(a < b))
                     } else {
@@ -421,7 +407,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     self.stack[slot] = *value;
                 }
                 OpCode::JumpIfFalse => {
-                    let offset = u16::from_be_bytes([read_byte!(), read_byte!()]);
+                    let offset = read_wide!();
                     if self.stack.last().unwrap().is_falsey() {
                         self.frames.last_mut().unwrap().ip += offset as usize;
                     }
@@ -554,6 +540,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::GetSuper => {
                     let name = read_constant!().try_as_string().unwrap();
                     let superclass = self.stack.pop().unwrap().try_as_class().unwrap();
+                    self.objects.mark(superclass);
                     self.bind_method(superclass, name)?
                 }
                 OpCode::SuperInvoke => {
@@ -561,7 +548,6 @@ impl<W: Write, E: Write> Vm<W, E> {
                     let arg_count = read_byte!();
                     let superclass = self.stack.pop().unwrap().try_as_class().unwrap();
                     self.invoke_from_class(superclass, method, arg_count)?;
-
                 }
             }
         }
@@ -569,16 +555,13 @@ impl<W: Write, E: Write> Vm<W, E> {
 
     #[inline]
     fn close_upvalues(&mut self, last: usize) {
-        // FIXME: ugly
         let mut top = self.open_upvalues.len();
         while top > 0 {
             let upvalue = self.open_upvalues[top - 1];
             let upvalue = &mut self.objects[upvalue];
             // shouldn't enter else, bug in that case
-            let ObjUpvalue::Open(slot) = upvalue else { break };
-            if *slot < last {
-                break;
-            }
+            let ObjUpvalue::Open(slot) = upvalue else { unreachable!() };
+            if *slot < last { break; }
             let value = self.stack[*slot];
             *upvalue = ObjUpvalue::Closed(value);
             top -= 1;
@@ -593,22 +576,20 @@ impl<W: Write, E: Write> Vm<W, E> {
         class.methods.insert(name, method);
     }
 
-    // FIXME: ugly
     fn capture_upvalue(&mut self, slot: usize) -> GcHandle<ObjUpvalue> {
-        for (i, upvalue_obj) in self.open_upvalues.iter().enumerate().rev() {
-            let upvalue = &self.objects[*upvalue_obj].as_open().unwrap();
-            if *upvalue == slot {
-                return *upvalue_obj;
-            } else if *upvalue < slot {
-                let upvalue = ObjUpvalue::Open(slot);
-                let upvalue = self.alloc(upvalue);
-                self.open_upvalues.insert(i + 1, upvalue);
+        let mut insert_idx = 0;
+        for (i, &upvalue) in self.open_upvalues.iter().enumerate().rev() {
+            let ObjUpvalue::Open(upvalue_slot) = self.objects[upvalue] else { unreachable!() };
+            if upvalue_slot == slot {
                 return upvalue;
             }
+            if upvalue_slot < slot {
+                insert_idx = i + 1;
+                break;
+            }
         }
-        let upvalue = ObjUpvalue::Open(slot);
-        let upvalue = self.alloc(upvalue);
-        self.open_upvalues.push(upvalue);
+        let upvalue = self.alloc(ObjUpvalue::Open(slot));
+        self.open_upvalues.insert(insert_idx, upvalue);
         upvalue
     }
 

@@ -62,7 +62,7 @@ impl<'a> AtCoords<Token<'a>> {
     pub fn span<'b>(&'b self) -> &'a str {
         match self.kind() {
             Kind::This => "this",
-            _ => self.value.span
+            _ => self.value.span,
         }
     }
 }

@@ -30,8 +30,7 @@ fn run_file(vm: &mut Vm, filename: &str) -> Result<(), ()> {
     struct Stdout(std::io::Stdout);
     impl std::fmt::Write for Stdout {
         fn write_str(&mut self, s: &str) -> std::fmt::Result {
-            std::io::Write::write_fmt(&mut self.0, format_args!("{s}"))
-                .map_err(|_| std::fmt::Error)
+            std::io::Write::write_fmt(&mut self.0, format_args!("{s}")).map_err(|_| std::fmt::Error)
         }
     }
 

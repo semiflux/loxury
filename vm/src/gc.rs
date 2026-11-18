@@ -1,13 +1,11 @@
+use rustc_hash::FxHashMap as HashMap;
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::{/*collections::HashMap,*/ mem};
-use rustc_hash::FxHashMap as HashMap;
 
-use crate::chunk::{
-    BoundMethod, Class, Closure, Function, Instance, Native, ObjUpvalue, Value,
-};
+use crate::chunk::{BoundMethod, Class, Closure, Function, Instance, Native, ObjUpvalue, Value};
 
 // arena id rides in the top byte of every handle (MSB mask), so a
 // handle alone identifies both the arena and the slot. nan-boxed

@@ -168,7 +168,7 @@ impl ClassCompiler {
     fn new() -> Self {
         Self {
             depth: 0,
-            superclasses: 0
+            superclasses: 0,
         }
     }
 
@@ -205,7 +205,7 @@ pub struct Compiler<'a, 't, W: Write> {
     objects: &'a mut Heap,
     frame: CompilationFrame<'a>,
     errors: Errors<'a, W>,
-    class_compiler : ClassCompiler,
+    class_compiler: ClassCompiler,
 }
 
 pub struct CompilationFrame<'a> {
@@ -366,11 +366,9 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
     }
 
     fn next_token_if(&mut self, f: impl Fn(TokenKind) -> bool) -> Option<AtCoords<Token<'a>>> {
-        self.peek_token()
-            .filter(|t| f(t.kind()))
-            .inspect(|_| {
-                self.lexer.next();
-            })
+        self.peek_token().filter(|t| f(t.kind())).inspect(|_| {
+            self.lexer.next();
+        })
     }
 
     fn next_token_if_eq(&mut self, kind: TokenKind) -> Option<AtCoords<Token<'_>>> {
@@ -566,7 +564,8 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
             self.emit_op(OpCode::Return, coords);
         } else {
             if let FunctionKind::Initializer = self.frame.function.kind {
-                self.errors.report(&coords.locate(CompileError::InitializerReturn).into());
+                self.errors
+                    .report(&coords.locate(CompileError::InitializerReturn).into());
             }
 
             self.expression();
@@ -614,8 +613,11 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
         if self.frame.locals.is_unique(&span) {
             self.add_local(name);
         } else {
-            self.errors
-                .sync(&name.co_locate(CompileError::VariableRedeclaration(span.clone())).into())
+            self.errors.sync(
+                &name
+                    .co_locate(CompileError::VariableRedeclaration(span.clone()))
+                    .into(),
+            )
         }
     }
 
@@ -802,7 +804,15 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
             let name = t.span();
             let constant = self.identifier_constant(name.into(), coords);
 
-            self.function(if name == "init" { FunctionKind::Initializer } else { FunctionKind::Method }, coords, name);
+            self.function(
+                if name == "init" {
+                    FunctionKind::Initializer
+                } else {
+                    FunctionKind::Method
+                },
+                coords,
+                name,
+            );
             self.emit_op(OpCode::Method, coords);
             self.emit_byte(constant, coords);
         } else if self
@@ -814,8 +824,6 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
             self.next_token();
         }
     }
-
-
 
     fn class_declaration(&mut self) {
         if let Some(class) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
@@ -829,7 +837,8 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
             self.define_variable(index, coords);
 
             if let Err(()) = self.class_compiler.try_nest() {
-                self.errors.report(&coords.locate(CompileError::TooMuchClassNesting).into())
+                self.errors
+                    .report(&coords.locate(CompileError::TooMuchClassNesting).into())
             }
 
             if self.next_token_if_eq(TokenKind::Less).is_some()
@@ -837,7 +846,8 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
                     self.consume(TokenKind::Identifier, CompileError::ExpectedClassName)
             {
                 if class.span() == superclass.span() {
-                    self.errors.report(&superclass.co_locate(CompileError::SelfInheritance).into());
+                    self.errors
+                        .report(&superclass.co_locate(CompileError::SelfInheritance).into());
                 }
 
                 self.variable(&superclass, false);
@@ -870,7 +880,6 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
                     self.end_scope(t.coords());
                 }
             }
-
 
             let _ = self.class_compiler.try_unnest();
         }
@@ -1102,9 +1111,7 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
 
     fn resolve_local(&mut self, name: &AtCoords<Token<'_>>) -> Option<u8> {
         match self.frame.resolve_local(name) {
-            Ok(local) => {
-                local
-            }
+            Ok(local) => local,
             Err(e) => {
                 self.errors.sync(&e);
                 Some(0)
@@ -1158,26 +1165,37 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
 
     fn super_(&mut self, token: &AtCoords<Token<'_>>) {
         if self.class_compiler.depth == 0 {
-            self.errors.report(&token.co_locate(CompileError::SuperOutsideClass).into());
+            self.errors
+                .report(&token.co_locate(CompileError::SuperOutsideClass).into());
         } else if !self.class_compiler.has_superclass() {
-            self.errors.report(&token.co_locate(CompileError::SuperWithoutClass).into());
+            self.errors
+                .report(&token.co_locate(CompileError::SuperWithoutClass).into());
         }
 
         self.consume(TokenKind::Dot, CompileError::ExpectedDotAfterSuper);
         if let Some(name) = self.consume(TokenKind::Identifier, CompileError::ExpectedMethodName) {
             let constant = self.identifier_constant(name.span().into(), name.coords());
 
-            self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "this")), false);
+            self.named_variable(
+                &name.co_locate(Token::new(TokenKind::Identifier, "this")),
+                false,
+            );
             if let Some(paren) = self.next_token_if_eq(TokenKind::LeftParen) {
                 let paren_coords = paren.coords();
                 let name_coords = name.coords();
                 let arg_count = self.argument_list();
-                self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "super")), false);
+                self.named_variable(
+                    &name.co_locate(Token::new(TokenKind::Identifier, "super")),
+                    false,
+                );
                 self.emit_op(OpCode::SuperInvoke, paren_coords);
                 self.emit_byte(constant, name_coords);
                 self.emit_byte(arg_count, paren_coords);
             } else {
-                self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "super")), false);
+                self.named_variable(
+                    &name.co_locate(Token::new(TokenKind::Identifier, "super")),
+                    false,
+                );
                 self.emit_op(OpCode::GetSuper, name.coords());
                 self.emit_byte(constant, name.coords());
             }
@@ -1186,7 +1204,8 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
 
     fn this(&mut self, token: &AtCoords<Token<'_>>) {
         if self.class_compiler.depth == 0 {
-            self.errors.report(&token.co_locate(CompileError::ThisOutsideClass).into())
+            self.errors
+                .report(&token.co_locate(CompileError::ThisOutsideClass).into())
         }
         self.variable(token, false);
     }

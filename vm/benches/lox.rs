@@ -26,7 +26,13 @@ macro_rules! runs_clean {
         #[test]
         fn $name() {
             let mut vm = Vm::new();
-            assert!(vm.run(include_str!(concat!("programs/", $file)), None::<&mut String>).is_ok());
+            assert!(
+                vm.run(
+                    include_str!(concat!("programs/", $file)),
+                    None::<&mut String>
+                )
+                .is_ok()
+            );
         }
     };
 }
