@@ -16,20 +16,31 @@ use std::io::{Stderr, Stdout, Write};
 use std::time::UNIX_EPOCH;
 
 const FRAMES_MAX: usize = 64;
+const SLOTS_PER_FRAME: usize = 256;
+const STACK_MAX: usize = FRAMES_MAX * SLOTS_PER_FRAME;
+type StackIndex = u16;
+const _: () = assert!(STACK_MAX <= StackIndex::MAX as usize + 1);
 
 struct CallFrame {
     closure: GcHandle<Closure>,
+    // cached self.objects[self.closure.function]
+    function: *const Function,
     ip: usize,
-    base: usize,
+    base: StackIndex,
 }
 
 impl CallFrame {
-    fn new(closure: GcHandle<Closure>, base: usize) -> Self {
+    fn new(closure: GcHandle<Closure>, function: &Function, base: usize) -> Self {
         Self {
             closure,
-            base,
+            function,
+            base: base as u16,
             ip: 0,
         }
+    }
+
+    fn base(&self) -> usize {
+        self.base as usize
     }
 }
 
@@ -111,7 +122,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         }
         // FIXME: repeated operation
         let base = self.stack.len() - 1 - arg_count as usize;
-        self.frames.push(CallFrame::new(closure, base));
+        self.frames.push(CallFrame::new(closure, &self.objects[function], base));
         Ok(())
     }
 
@@ -223,34 +234,31 @@ impl<W: Write, E: Write> Vm<W, E> {
         self.objects.mark(function);
         let closure = self.alloc(Closure::new(function));
 
-        self.frames.push(CallFrame::new(closure, 0));
+        self.frames.push(CallFrame::new(closure, &self.objects[function], 0));
         self.stack.push(Value::closure(closure));
         self.execute().map_err(|e| {
             let _ = writeln!(self.err, "{e}");
         })
     }
 
-    fn current_frame(&mut self) -> &mut CallFrame {
-        self.frames.last_mut().unwrap()
-    }
-
     fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
+        let frame = self.frames.last_mut().unwrap();
+        let function = unsafe { &*frame.function };
         // frame.ip is one past the failing instruction; back up onto it
-        let ip = self.current_frame().ip.saturating_sub(1);
-        let closure = self.current_frame().closure;
-        let function = &self.objects[closure].function;
-        let function = &self.objects[*function];
+        let ip = frame.ip.saturating_sub(1);
         Err(function.chunk.coords(ip).locate(error))
     }
 
     fn execute(&mut self) -> Result<(), AtCoords<RunError>> {
+        // TODO: write a proper note on why this is safe
+        let frames = (&raw mut self.frames.values).cast::<CallFrame>();
+        let mut active_frame = unsafe { frames.add(self.frames.len().checked_sub(1).unwrap()) };
+
         loop {
             macro_rules! read_byte {
                 () => {{
-                    let frame = self.frames.last_mut().unwrap();
-                    let closure = &self.objects[frame.closure];
-                    let function = &self.objects[closure.function];
-                    let ret = function.chunk.byte_at(frame.ip);
+                    let frame = unsafe { &mut *active_frame };
+                    let ret = unsafe { (&*frame.function) }.chunk.byte_at(frame.ip);
                     frame.ip += 1;
                     ret
                 }};
@@ -262,24 +270,26 @@ impl<W: Write, E: Write> Vm<W, E> {
             }
             macro_rules! read_constant {
                 () => {{
+                    let frame = unsafe { &mut *active_frame };
+                    let function = unsafe { &*frame.function };
                     let index = read_byte!();
-                    let frame = self.frames.last().unwrap();
-                    let closure = &self.objects[frame.closure];
-                    *self.objects[closure.function].chunk.get_constant(index)
+                    *function.chunk.get_constant(index)
                 }};
             }
-            match unsafe { OpCode::from_byte(read_byte!()) } {
+            let instruction = read_byte!();
+            match unsafe { OpCode::from_byte(instruction) } {
                 OpCode::Return => {
                     let result = self.stack.pop().unwrap();
                     let frame = self.frames.pop().unwrap();
-                    self.close_upvalues(frame.base);
+                    self.close_upvalues(frame.base as usize);
                     if self.frames.is_empty() {
                         self.stack.pop();
                         return Ok(());
                     }
 
-                    self.stack.truncate(frame.base);
+                    self.stack.truncate(frame.base());
                     self.stack.push(result);
+                    active_frame = unsafe { frames.add(self.frames.len().checked_sub(1).unwrap()) };
                 }
                 OpCode::Constant => {
                     let constant = read_constant!();
@@ -396,13 +406,13 @@ impl<W: Write, E: Write> Vm<W, E> {
                 }
                 OpCode::GetLocal => {
                     let slot = read_byte!();
-                    let slot = self.current_frame().base + slot as usize;
+                    let slot = unsafe { (*active_frame).base() } + slot as usize;
                     let value = self.stack[slot];
                     self.stack.push(value);
                 }
                 OpCode::SetLocal => {
                     let slot = read_byte!();
-                    let slot = self.current_frame().base + slot as usize;
+                    let slot = unsafe { (*active_frame).base() } + slot as usize;
                     let value = self.stack.last().unwrap();
                     self.stack[slot] = *value;
                 }
@@ -414,15 +424,18 @@ impl<W: Write, E: Write> Vm<W, E> {
                 }
                 OpCode::Jump => {
                     let offset = read_wide!();
-                    self.current_frame().ip += offset as usize;
+                    let frame = unsafe { &mut *active_frame };
+                    frame.ip += offset as usize;
                 }
                 OpCode::Loop => {
                     let offset = read_wide!();
-                    self.current_frame().ip -= offset as usize;
+                    let frame = unsafe { &mut *active_frame };
+                    frame.ip -= offset as usize;
                 }
                 OpCode::Call => {
                     let arg_count = read_byte!();
-                    self.call_value(arg_count)?
+                    self.call_value(arg_count)?;
+                    active_frame = unsafe { frames.add(self.frames.len().checked_sub(1).unwrap()) };
                 }
                 OpCode::Closure => {
                     let function = read_constant!().try_as_function().unwrap();
@@ -436,12 +449,12 @@ impl<W: Write, E: Write> Vm<W, E> {
                         let is_local = read_byte!();
                         let index = read_byte!();
                         if is_local == 1 {
-                            let slot = self.current_frame().base + index as usize;
-                            let upvalue = self.capture_upvalue(slot);
+                            let slot = unsafe { (*active_frame).base() } + index as usize;
+                            let upvalue = self.capture_upvalue(slot as usize);
                             let closure = &mut self.objects[closure_obj];
                             closure.upvalues.push(upvalue);
                         } else {
-                            let current_closure_obj = self.current_frame().closure;
+                            let current_closure_obj = unsafe { (*active_frame).closure };
                             let current_closure = &self.objects[current_closure_obj];
                             let upvalue = current_closure.upvalues[index as usize];
                             let closure = &mut self.objects[closure_obj];
@@ -451,14 +464,14 @@ impl<W: Write, E: Write> Vm<W, E> {
                 }
                 OpCode::GetUpvalue => {
                     let slot = read_byte!();
-                    let closure = self.current_frame().closure;
+                    let closure = unsafe { (*active_frame).closure };
                     let closure = &self.objects[closure];
                     let value = self.get_upvalue(closure.upvalues[slot as usize]);
                     self.stack.push(value);
                 }
                 OpCode::SetUpvalue => {
                     let slot = read_byte!();
-                    let closure = self.current_frame().closure;
+                    let closure = unsafe { (*active_frame).closure };
                     let closure = &self.objects[closure];
                     let upvalue = closure.upvalues[slot as usize];
                     self.set_upvalue(upvalue);
@@ -523,6 +536,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     } else {
                         self.invoke_from_class(instance.class, method, arg_count as u8)
                     }?;
+                    active_frame = unsafe { frames.add(self.frames.len().checked_sub(1).unwrap()) };
                 }
                 OpCode::Inherit => {
                     let top = self.stack.len() - 1;
@@ -548,6 +562,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                     let arg_count = read_byte!();
                     let superclass = self.stack.pop().unwrap().try_as_class().unwrap();
                     self.invoke_from_class(superclass, method, arg_count)?;
+                    active_frame = unsafe { frames.add(self.frames.len().checked_sub(1).unwrap()) };
                 }
             }
         }
