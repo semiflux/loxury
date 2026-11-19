@@ -156,7 +156,7 @@ impl<T, const N: usize> ArrayVec<T, N> {
         // TODO: add check
         assert_ne!(self.len, N);
         let len = self.len;
-        unsafe { ptr::write(self.as_mut_ptr().add(len), value) }
+        unsafe { ptr::write(self.values.as_mut_ptr().cast::<T>().add(len), value) }
         self.len += 1;
     }
 
