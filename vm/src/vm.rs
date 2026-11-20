@@ -237,6 +237,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         self.frames.push(CallFrame::new(closure, &self.objects[function], 0));
         self.stack.push(Value::closure(closure));
         self.execute().map_err(|e| {
+            self.close_upvalues(0);
             let _ = writeln!(self.err, "{e}");
         })
     }
@@ -419,7 +420,7 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::JumpIfFalse => {
                     let offset = read_wide!();
                     if self.stack.last().unwrap().is_falsey() {
-                        self.frames.last_mut().unwrap().ip += offset as usize;
+                        unsafe{ (*active_frame).ip += offset as usize };
                     }
                 }
                 OpCode::Jump => {
