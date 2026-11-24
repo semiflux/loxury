@@ -9,9 +9,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 rustc-hash = "2.1.3"
 wasm-bindgen = { version = "0.2", optional = true }
-serde_json = { version = "1", optional = true }
 
 [features]
 default = ["nan-boxing"]
-playground = ["dep:wasm-bindgen", "dep:serde_json"]
+playground = ["dep:wasm-bindgen"]
 nan-boxing = []
