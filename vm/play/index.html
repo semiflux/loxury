@@ -89,8 +89,9 @@ parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
 arguments      → expression ( "," expression )* ;
 NUMBER         → DIGIT+ ( "." DIGIT+ )? ;
 STRING         → "\"" &lt;any char except "\""&gt;* "\"" ;
-IDENTIFIER     → ALPHA ( ALPHA | DIGIT )* ;
-ALPHA          → "a" ... "z" | "A" ... "Z" | "_" ;
+IDENTIFIER     → ALPHA ( ALPHA | NUMERIC )* ;
+ALPHA          → &lt;any Unicode alphabetic char&gt; | "_" ;
+NUMERIC        → &lt;any Unicode numeric char&gt; ;
 DIGIT          → "0" ... "9" ;</pre>
 </div>
 </div>
