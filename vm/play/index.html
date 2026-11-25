@@ -47,7 +47,7 @@ button:focus-visible, select:focus-visible, #src:focus-visible { outline: 2px so
   <select id="examples" aria-label="Example programs"></select>
   <button id="run" disabled>Run</button>
   <button id="stop" hidden>Stop</button>
-  <button id="bytecode" disabled>bytecode</button>
+  <button id="bytecode" disabled>Show bytecode</button>
 </div>
 <noscript><p>This page needs JavaScript and WebAssembly.</p></noscript>
 <div id="main">
@@ -228,7 +228,7 @@ spawn();
 /* ---------- bytecode view ---------- */
 function hideDisasm() {
   dis.hidden = true;
-  bcBtn.textContent = 'bytecode';
+  bcBtn.textContent = 'Show bytecode';
   updateButtons();
 }
 
@@ -237,7 +237,7 @@ bcBtn.onclick = () => {
   if (lastDisasm == null) return;
   renderDisasm();
   dis.hidden = false;
-  bcBtn.textContent = 'hide bytecode';
+  bcBtn.textContent = 'Hide bytecode';
 };
 
 function renderDisasm() {
