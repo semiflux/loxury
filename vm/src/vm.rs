@@ -25,7 +25,7 @@ struct CallFrame {
     closure: GcHandle<Closure>,
     // cached self.objects[self.closure.function]
     function: *const Function,
-    ip: usize,
+    ip: *const u8,
     base: StackIndex,
 }
 
@@ -35,7 +35,7 @@ impl CallFrame {
             closure,
             function,
             base: base as u16,
-            ip: 0,
+            ip: function.chunk.code_start(),
         }
     }
 
@@ -246,7 +246,7 @@ impl<W: Write, E: Write> Vm<W, E> {
         let frame = self.frames.last_mut().unwrap();
         let function = unsafe { &*frame.function };
         // frame.ip is one past the failing instruction; back up onto it
-        let ip = frame.ip.saturating_sub(1);
+        let ip = unsafe { function.chunk.offset_of(frame.ip) }.saturating_sub(1);
         Err(function.chunk.coords(ip).locate(error))
     }
 
@@ -259,21 +259,25 @@ impl<W: Write, E: Write> Vm<W, E> {
             macro_rules! read_byte {
                 () => {{
                     let frame = unsafe { &mut *active_frame };
-                    let ret = unsafe { (&*frame.function) }.chunk.byte_at(frame.ip);
-                    frame.ip += 1;
+                    let ret = unsafe { *frame.ip };
+                    frame.ip = unsafe { frame.ip.add(1) };
                     ret
                 }};
             }
             macro_rules! read_wide {
-                () => {
-                    u16::from_be_bytes([read_byte!(), read_byte!()])
-                };
+                () => {{
+                    let frame = unsafe { &mut *active_frame };
+                    let ret = unsafe { u16::from_be_bytes([*frame.ip, *frame.ip.add(1)]) };
+                    frame.ip = unsafe { frame.ip.add(2) };
+                    ret
+                }};
             }
             macro_rules! read_constant {
                 () => {{
                     let frame = unsafe { &mut *active_frame };
                     let function = unsafe { &*frame.function };
-                    let index = read_byte!();
+                    let index = unsafe { *frame.ip };
+                    frame.ip = unsafe { frame.ip.add(1) };
                     *function.chunk.get_constant(index)
                 }};
             }
@@ -420,18 +424,19 @@ impl<W: Write, E: Write> Vm<W, E> {
                 OpCode::JumpIfFalse => {
                     let offset = read_wide!();
                     if self.stack.last().unwrap().is_falsey() {
-                        unsafe{ (*active_frame).ip += offset as usize };
+                        let frame = unsafe { &mut *active_frame };
+                        frame.ip = unsafe { frame.ip.add(offset as usize) };
                     }
                 }
                 OpCode::Jump => {
                     let offset = read_wide!();
                     let frame = unsafe { &mut *active_frame };
-                    frame.ip += offset as usize;
+                    frame.ip = unsafe { frame.ip.add(offset as usize) };
                 }
                 OpCode::Loop => {
                     let offset = read_wide!();
                     let frame = unsafe { &mut *active_frame };
-                    frame.ip -= offset as usize;
+                    frame.ip = unsafe { frame.ip.sub(offset as usize) };
                 }
                 OpCode::Call => {
                     let arg_count = read_byte!();

@@ -34,6 +34,14 @@ impl Chunk {
         self.code[index]
     }
 
+    pub fn code_start(&self) -> *const u8 {
+        self.code.as_ptr()
+    }
+
+    pub unsafe fn offset_of(&self, ip: *const u8) -> usize {
+        unsafe { ip.offset_from_unsigned(self.code.as_ptr()) }
+    }
+
     pub fn at_mut(&mut self, index: usize) -> &mut u8 {
         &mut self.code[index]
     }

@@ -4,3 +4,7 @@ members = [
     "tree-walk",
     "vm",
 ]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
