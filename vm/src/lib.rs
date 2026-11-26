@@ -18,7 +18,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::mem::MaybeUninit;
 use std::{ptr, slice};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompileError {
     UnclosedString,
     StrayChar(char),
@@ -103,7 +103,7 @@ impl Display for CompileError {
 
 impl Error for CompileError {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunError {
     ExpectedNumber,
     ExpectedNumbers,

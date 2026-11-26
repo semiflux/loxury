@@ -6,15 +6,23 @@ Two complete Lox interpreters in Rust, following [craftinginterpreters](https://
 - Almost no dependencies (`fxhash` for performance).
 - Only mildly slow (VM version is ~1.3x clox's runtime).
 - Poorly written (especially the tree-walk).
-- VM version passes the craftinginterpreters tests (modulo error-message wording).
+- Original Crafting Interpreters tests re-encoded and verified (modulo error-message wording).
 
 ## CLI
 
-```
+```sh
 cargo run -p vm -- program.lox              # run a file
 cargo run -p vm                             # no file: interactive prompt
 LOX_DUMP=1 cargo run -p vm -- program.lox   # also dump bytecode
 cargo run -p tree-walk -- program.lox       # harm yourself
+```
+
+## Tests
+```sh
+cargo test -p vm                            # lexer, compiler, VM
+cargo test -p vm --lib compiler::tests      # compilation
+cargo test -p vm --lib vm::tests            # execution
+cargo test -p vm --no-default-features      # tagged values instead of NaN boxing
 ```
 
 ## Playground

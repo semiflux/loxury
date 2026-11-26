@@ -1,6 +1,6 @@
 use std::fmt::{self, Debug, Display, Formatter};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Coords(u16, u16);
 
 impl Coords {
@@ -30,7 +30,7 @@ impl Display for Coords {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AtCoords<T> {
     coords: Coords,
     pub value: T,
@@ -59,7 +59,7 @@ impl<T: Display> Display for AtCoords<T> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AtCoordsOrEof<T> {
     AtCoords(AtCoords<T>),
     Eof(T),

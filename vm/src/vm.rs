@@ -15,6 +15,9 @@ use std::fmt::Write as FmtWrite;
 use std::io::{Stderr, Stdout, Write};
 use std::time::UNIX_EPOCH;
 
+#[cfg(test)]
+mod tests;
+
 const FRAMES_MAX: usize = 64;
 const SLOTS_PER_FRAME: usize = 256;
 const STACK_MAX: usize = FRAMES_MAX * SLOTS_PER_FRAME;
@@ -228,7 +231,12 @@ impl<W: Write, E: Write> Vm<W, E> {
         if let Some(out) = disasm {
             dump_function(&function, &self.objects, out);
         }
+        self.run_function(function).map_err(|e| {
+            let _ = writeln!(self.err, "{e}");
+        })
+    }
 
+    fn run_function(&mut self, function: Function) -> Result<(), AtCoords<RunError>> {
         function.trace(&self.objects);
         let function = self.alloc(function);
         self.objects.mark(function);
@@ -236,9 +244,8 @@ impl<W: Write, E: Write> Vm<W, E> {
 
         self.frames.push(CallFrame::new(closure, &self.objects[function], 0));
         self.stack.push(Value::closure(closure));
-        self.execute().map_err(|e| {
+        self.execute().inspect_err(|_| {
             self.close_upvalues(0);
-            let _ = writeln!(self.err, "{e}");
         })
     }
 

@@ -11,6 +11,9 @@ use std::io::Write;
 use std::iter::Peekable;
 use std::mem;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Precedence {
     None,
@@ -131,27 +134,22 @@ impl Locals<'_> {
     }
 }
 
-struct Errors<'a, W: Write> {
+type Diagnostic = AtCoordsOrEof<CompileError>;
+
+struct Errors<'a, S> {
     had_error: bool,
     panic_mode: bool,
-    err: &'a mut W,
+    sink: &'a mut S,
+    emit: fn(&mut S, &Diagnostic),
 }
 
-impl<'a, W: Write> Errors<'a, W> {
-    fn new(err: &'a mut W) -> Self {
-        Self {
-            had_error: false,
-            panic_mode: false,
-            err,
-        }
-    }
-
-    fn report(&mut self, error: &AtCoordsOrEof<CompileError>) {
+impl<S> Errors<'_, S> {
+    fn report(&mut self, error: &Diagnostic) {
         self.had_error = true;
-        let _ = writeln!(self.err, "{error}");
+        (self.emit)(self.sink, error);
     }
 
-    fn sync(&mut self, error: &AtCoordsOrEof<CompileError>) {
+    fn sync(&mut self, error: &Diagnostic) {
         if !self.panic_mode {
             self.panic_mode = true;
             self.report(error);
@@ -200,11 +198,11 @@ impl ClassCompiler {
     }
 }
 
-pub struct Compiler<'a, 't, W: Write> {
+pub struct Compiler<'a, 't, S> {
     lexer: &'a mut Peekable<Lexer<'t>>,
     objects: &'a mut Heap,
     frame: CompilationFrame<'a>,
-    errors: Errors<'a, W>,
+    errors: Errors<'a, S>,
     class_compiler: ClassCompiler,
 }
 
@@ -292,11 +290,30 @@ impl<'a, 't, W: Write> Compiler<'a, 't, W> {
         function_kind: FunctionKind,
         err: &'b mut W,
     ) -> Compiler<'b, 't, W> {
-        Compiler {
+        Compiler::with_reporter(lexer, objects, function_kind, err, |out, error| {
+            let _ = writeln!(out, "{error}");
+        })
+    }
+}
+
+impl<'a, 't, S> Compiler<'a, 't, S> {
+    fn with_reporter(
+        lexer: &'a mut Peekable<Lexer<'t>>,
+        objects: &'a mut Heap,
+        function_kind: FunctionKind,
+        sink: &'a mut S,
+        emit: fn(&mut S, &Diagnostic)
+    ) -> Self {
+        Self {
             lexer,
             objects,
             frame: CompilationFrame::new(function_kind),
-            errors: Errors::new(err),
+            errors: Errors {
+                had_error: false,
+                panic_mode: false,
+                sink,
+                emit,
+            },
             class_compiler: ClassCompiler::new(),
         }
     }
