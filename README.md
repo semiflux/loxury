@@ -1,10 +1,10 @@
 # loxury
 
-Two Lox interpreters in Rust, following [craftinginterpreters](https://craftinginterpreters.com/):
+Two complete Lox interpreters in Rust, following [craftinginterpreters](https://craftinginterpreters.com/):
 `tree-walk` (AST interpreter) and `vm` (bytecode compiler + VM).
 
 - Almost no dependencies (`fxhash` for performance).
-- Very slow (VM version is 2–4x slower than clox).
+- Only mildly slow (VM version is ~1.3x clox's runtime).
 - Poorly written (especially the tree-walk).
 - VM version passes the craftinginterpreters tests (modulo error-message wording).
 
