@@ -1,11 +1,28 @@
-name: playground
+name: CI
+
 on:
-  workflow_dispatch:
   push:
     branches: [master]
-    paths: [vm/**]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo test -p vm --no-default-features
+
   deploy:
+    needs: test
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -16,13 +33,14 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: rustup target add wasm32-unknown-unknown
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p vm --lib --release --target wasm32-unknown-unknown --features playground
-      - name: install wasm-bindgen
+      - name: onstall wasm-bindgen
         run: |
           version=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;q}' Cargo.lock)
-          echo "installing wasm-bindgen-cli $version"
           cargo install wasm-bindgen-cli --version "$version"
       - run: wasm-bindgen --target web --out-dir vm/play/pkg --no-typescript target/wasm32-unknown-unknown/release/vm.wasm
       - uses: actions/upload-pages-artifact@v3
